@@ -895,7 +895,8 @@ void FormUnitsEdit::OnOpenClick(wxCommandEvent& event)
 		return;
 	
 	wxArrayString list;
-	openFileDialog.GetFilenames(list);
+	// Preserve full paths: unit DEFs can live outside the working directory.
+	openFileDialog.GetPaths(list);
 	if(!list.empty())
 		m_spell_data->export_fs_path = list[0].ToStdWstring();
 
@@ -996,7 +997,11 @@ void FormUnitsEdit::OnSaveClick(wxCommandEvent& event)
 			wxMessageBox(string_format("Failed saving units DEF file \"%s\"!",path),"Save Spellcross Units DEF file(s)",wxICON_ERROR);
 			return;
 		}
-
+		units->m_path = path;
+		SetTitle(string_format("Spellcross Units Editor (%s)",path));
+		lboxDEF->SetString(sid, path.filename().wstring());
+		lboxTargetDef->SetString(sid, path.filename().wstring());
+		SetStatusText("Saved JEDNOTKY.DEF successfully.");
 		return;
 	}
 
@@ -1004,8 +1009,7 @@ void FormUnitsEdit::OnSaveClick(wxCommandEvent& event)
 	std::vector<std::shared_ptr<SpellUnits>> def_list;
 	for(auto &id: list)
 	{
-		auto sid = list[0];
-		if(sid < 0 || sid >= m_defs.size())
+		if(id < 0 || id >= m_defs.size())
 			return;
 		def_list.push_back(m_defs[id]);
 	}
