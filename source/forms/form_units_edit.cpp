@@ -1853,7 +1853,7 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 // Render actual model geometry rather than rotating a flattened PNG.
 // Blender runs outside the editor: no extra 3D library or engine dependency.
 static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
-	const std::filesystem::path& model, int views, int elevation, int heading)
+	const std::filesystem::path& model, int views, int elevation, int heading, int lighting)
 {
 	static wxString blenderExecutable;
 	if(blenderExecutable.empty())
@@ -1916,8 +1916,8 @@ static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
 	wxString cmd=quoted(program)+
 		" --background --factory-startup --python "+quoted(script)+
 		" -- --input "+quoted(model)+" --output "+quoted(tempDir)+
-		wxString::Format(" --views %d --resolution 1024 --elevation %d --heading %d --frame 1",
-			views,elevation,heading*45);
+		wxString::Format(" --views %d --resolution 1024 --elevation %d --heading %d --lighting %d --frame 1",
+			views,elevation,heading*45,lighting);
 	wxArrayString stdOut,stdErr;
 	long result=0;
 	{
@@ -2034,8 +2034,8 @@ static void EnhanceGameSprite(wxImage& image)
 		return static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(n)),0,255));
 	};
 
-	// Midtone lift is intentionally nonlinear: pure blacks and whites remain
-	// largely intact, while the dark aircraft/vehicle body becomes readable.
+	// Subtle shadow-only correction. Leave highlights unchanged, so a model
+	// with white textures does not get bleached out before palette conversion.
 	for(size_t p=0;p<pixels;++p)
 	{
 		if(alpha && alpha[p]<16)
@@ -2047,12 +2047,14 @@ static void EnhanceGameSprite(wxImage& image)
 		for(int k=0;k<3;++k)
 		{
 			const double value=rgb[3*p+k]/255.0;
-			c[k]=std::clamp((std::pow(value,0.78)-0.46)*1.06+0.46,0.0,1.0);
+			// Correct only deep shadows, with zero lift at and above 0.45.
+			const double shadow=std::max(0.0,0.45-value)/0.45;
+			c[k]=std::clamp(value+0.025*shadow*shadow,0.0,1.0);
 		}
 		const double gray=0.2126*c[0]+0.7152*c[1]+0.0722*c[2];
 		for(int k=0;k<3;++k)
 			tonemapped[3*p+k]=byteClamp(
-				std::clamp(gray+(c[k]-gray)*1.08,0.0,1.0)*255.0);
+				std::clamp(gray+(c[k]-gray)*1.02,0.0,1.0)*255.0);
 	}
 
 	// Alpha-aware 3x3 Gaussian unsharp mask. The transparent canvas must not
@@ -2090,7 +2092,7 @@ static void EnhanceGameSprite(wxImage& image)
 			{
 				const double c=tonemapped[3*p+k];
 				const double blur=weightSum>0.0?sums[k]/weightSum:c;
-				rgb[3*p+k]=byteClamp(c+0.50*(c-blur));
+				rgb[3*p+k]=byteClamp(c+0.18*(c-blur));
 			}
 		}
 }
@@ -2173,6 +2175,11 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		wxDefaultSize,wxSP_ARROW_KEYS,0,90,m_unit->isAir()?65:35);
 	cameraElevation->Enable(model3D);
 	grid->Add(cameraElevation,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"3D lighting intensity (%):"),0,wxALIGN_CENTER_VERTICAL);
+	auto lightingField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
+		wxDefaultSize,wxSP_ARROW_KEYS,25,200,100);
+	lightingField->Enable(model3D);
+	grid->Add(lightingField,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Background tolerance (PNG):"),0,wxALIGN_CENTER_VERTICAL);
 	auto toleranceField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,0,100,32);
@@ -2185,7 +2192,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	backgroundField->Enable(!model3D);
 	layout->Add(backgroundField,0,wxALL,12);
 	auto enhanceField=new wxCheckBox(&options,wxID_ANY,
-		"Improve game sprite brightness and fine detail (recommended)");
+		"Enhance fine details (gentle, no strong brightness boost)");
 	enhanceField->SetValue(true);
 	layout->Add(enhanceField,0,wxLEFT|wxRIGHT|wxBOTTOM,12);
 	layout->Add(new wxStaticText(&options,wxID_ANY,
@@ -2222,7 +2229,8 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		{
 			auto renders=RenderModelWithBlender(this,source,
 				rotationField->GetSelection()==0?8:1,
-				cameraElevation->GetValue(),sourceHeadingField->GetSelection());
+				cameraElevation->GetValue(),sourceHeadingField->GetSelection(),
+				lightingField->GetValue());
 			original=renders.front().Copy(); // info-portrait source: actual 3D render
 			frames=FitRenderedModelFrames(renders,sizeField->GetValue(),
 				unitMode->GetSelection()==1);
