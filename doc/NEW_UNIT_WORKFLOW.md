@@ -23,7 +23,9 @@ embedded into the editor.
    textures and `.bin` buffers in their original relative locations.
 4. Pick a unique FSU graphics group (1–5 uppercase letters/digits).
    Choose **Air** for aircraft that may extend beyond one map tile,
-   **Ground** to constrain the resulting sprites to one 80×48 game tile.
+   **Ground** for vehicles or infantry occupying one 80-pixel-wide map
+   tile. Their sprite art may rise above the tile surface: the original
+   48px height cap was incorrect.
 5. Set **3D camera elevation**, initially 65° for aircraft or 35° for
    ground units. Select the model's forward direction with **Source image
    points toward**. The default assumes forward is negative Y in the
@@ -33,6 +35,14 @@ embedded into the editor.
    magnification. The editor computes a **shared crop/scale across all
    angles**, produces 8 game-scale images, and previews each angle.
    Neither model nor textures are modified.
+   Ground rendering uses the **template unit's visible FSU sprite size**
+   (tank vs. walking infantry) rather than the former hardcoded 40×28px
+   limit. The lowest opaque pixel is anchored to the terrain origin in
+   each direction, so transparent borders cannot lift the unit above the
+   map. When Ground is selected on an aircraft template, its game unit
+   classification also switches from Air to Armored Ground and its Flight
+   flag is cleared. Preserve Light/Armored and Walk flags for an
+   already-ground template.\n
    The **Enhance fine details** checkbox is enabled by default. It now
    applies only restrained shadow correction and mild alpha-safe edge
    sharpening **after downscaling and before** the fixed `UNITS.PAL`
@@ -62,7 +72,8 @@ Material support is subject to Blender's glTF/FBX importers.
 The old transparent-background/crop/rotation importer is still available
 through the PNG file filter. Its eight directions remain approximate
 2D transformations, so it is not recommended for new directional units.
-Ground units use the same one-tile limit and Spellcross-native FSU anchors.
+Ground units share the same template-based scale and opaque-pixel
+ground anchoring as 3D input.
 The separate **Build PNG graphics / UNITS.FSU...** button still accepts
 artist-prepared PNG sprite folders.
 
