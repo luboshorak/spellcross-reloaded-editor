@@ -2147,6 +2147,14 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 				rotationField->GetSelection()==0,unitMode->GetSelection()==1,
 				m_unit->gr_base,sourceHeadingField->GetSelection());
 		}
+		// A one-view model still needs 8 azimuth slots because the game
+		// indexes direction tables with an azimuth ID, including static views.
+		if(frames.size()==1)
+		{
+			const auto one=frames.front().Copy();
+			while(frames.size()<8)
+				frames.push_back(one.Copy());
+		}
 	}
 	catch(const std::exception& error)
 	{
