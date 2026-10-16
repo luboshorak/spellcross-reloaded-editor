@@ -25,6 +25,8 @@
 #include <wx/checkbox.h>
 #include <wx/spinctrl.h>
 #include <deque>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <wx/stattext.h>
 #include <wx/button.h>
@@ -1584,6 +1586,356 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 	}
 }
 
+
+// Produce genuine small, palettizable Spellcross graphics from large artwork.
+// For top-down subjects (e.g. aircraft), rotating the cut-out generates a
+// usable static eight-azimuth preview. It is not 3D reconstruction.
+static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
+	int targetSize, bool eraseBackground, int tolerance, bool eightDirections)
+{
+	if(!image.IsOk() || image.GetWidth() < 2 || image.GetHeight() < 2)
+		throw std::runtime_error("Invalid source image.");
+
+	const int width = image.GetWidth();
+	const int height = image.GetHeight();
+	const size_t count = static_cast<size_t>(width)*height;
+	bool hasRealTransparency = false;
+	if(image.HasAlpha())
+	{
+		auto alpha = image.GetAlpha();
+		for(size_t i=0;i<count;++i)
+			if(alpha[i] < 240)
+			{
+				hasRealTransparency = true;
+				break;
+			}
+	}
+	else
+		image.InitAlpha();
+
+	auto* rgb = image.GetData();
+	auto* alpha = image.GetAlpha();
+	if(!rgb || !alpha)
+		throw std::runtime_error("Could not access image pixels.");
+
+	if(eraseBackground && !hasRealTransparency)
+	{
+		// Erase only contiguous pixels connected to the outer border. Never
+		// erase similar colors inside the subject (e.g. pale airplane wings).
+		std::array<size_t,4> corners = {0,static_cast<size_t>(width-1),
+			static_cast<size_t>(height-1)*width,count-1};
+		std::array<int,3> background = {0,0,0};
+		for(size_t k : corners)
+			for(int ch=0;ch<3;++ch)
+				background[ch] += rgb[3*k+ch];
+		for(int ch=0;ch<3;++ch)
+			background[ch] /= 4;
+		const int threshold2 = 3*tolerance*tolerance;
+		for(size_t k : corners)
+		{
+			int distance2=0;
+			for(int ch=0;ch<3;++ch)
+			{
+				int d = static_cast<int>(rgb[3*k+ch])-background[ch];
+				distance2 += d*d;
+			}
+			if(distance2 > threshold2*4)
+				throw std::runtime_error(
+					"Background is not uniform at the image corners. "
+					"Use a transparent PNG, or disable automatic background removal.");
+		}
+		std::vector<uint8_t> visited(count,0);
+		std::deque<size_t> queue;
+		auto add = [&](size_t k)
+		{
+			if(visited[k])
+				return;
+			visited[k] = 1;
+			int distance2=0;
+			for(int ch=0;ch<3;++ch)
+			{
+				const int d=static_cast<int>(rgb[3*k+ch])-background[ch];
+				distance2+=d*d;
+			}
+			if(distance2 <= threshold2)
+				queue.push_back(k);
+		};
+		for(int x=0;x<width;++x)
+		{
+			add(static_cast<size_t>(x));
+			add(static_cast<size_t>(height-1)*width+x);
+		}
+		for(int y=0;y<height;++y)
+		{
+			add(static_cast<size_t>(y)*width);
+			add(static_cast<size_t>(y)*width+width-1);
+		}
+		while(!queue.empty())
+		{
+			size_t k=queue.front();
+			queue.pop_front();
+			alpha[k]=0;
+			int x=static_cast<int>(k%width);
+			int y=static_cast<int>(k/width);
+			if(x>0) add(k-1);
+			if(x+1<width) add(k+1);
+			if(y>0) add(k-width);
+			if(y+1<height) add(k+width);
+		}
+	}
+
+	int xmin=width, ymin=height, xmax=-1, ymax=-1;
+	for(int y=0;y<height;++y)
+		for(int x=0;x<width;++x)
+			if(alpha[static_cast<size_t>(y)*width+x] >= 24)
+			{
+				xmin=std::min(xmin,x);
+				ymin=std::min(ymin,y);
+				xmax=std::max(xmax,x);
+				ymax=std::max(ymax,y);
+			}
+	if(xmax<0)
+		throw std::runtime_error("No visible object remains after background removal.");
+
+	// Retain a small transparent border to prevent clipping during filtering.
+	const int padding = std::max(2,std::max(xmax-xmin,ymax-ymin)/100);
+	xmin=std::max(0,xmin-padding);
+	ymin=std::max(0,ymin-padding);
+	xmax=std::min(width-1,xmax+padding);
+	ymax=std::min(height-1,ymax+padding);
+	image=image.GetSubImage(wxRect(xmin,ymin,xmax-xmin+1,ymax-ymin+1));
+
+	// Typical game-scale image. Preserve aspect ratio and don't upscale small art.
+	const double scale=std::min({1.0,
+		static_cast<double>(targetSize)/image.GetWidth(),
+		static_cast<double>(targetSize)/image.GetHeight()});
+	const int newWidth=std::max(1,static_cast<int>(std::lround(image.GetWidth()*scale)));
+	const int newHeight=std::max(1,static_cast<int>(std::lround(image.GetHeight()*scale)));
+	if(newWidth!=image.GetWidth() || newHeight!=image.GetHeight())
+		image.Rescale(newWidth,newHeight,wxIMAGE_QUALITY_BICUBIC);
+
+	// Uniform transparent canvas, centered at FSU sprite origin. Enough margin
+	// for a 45-degree rotation of a targetSize-wide object.
+	const int side=static_cast<int>(std::ceil(targetSize*1.5));
+	const int variants=eightDirections?8:1;
+	std::vector<wxImage> frames;
+	frames.reserve(variants);
+	for(int heading=0;heading<variants;++heading)
+	{
+		wxImage frame(side,side);
+		frame.InitAlpha();
+		std::memset(frame.GetData(),0,static_cast<size_t>(side)*side*3);
+		std::memset(frame.GetAlpha(),0,static_cast<size_t>(side)*side);
+		const double angle=(heading*3.14159265358979323846/4.0);
+		const double sn=std::sin(angle);
+		const double cs=std::cos(angle);
+		const double cx=(image.GetWidth()-1)/2.0;
+		const double cy=(image.GetHeight()-1)/2.0;
+		for(int y=0;y<side;++y)
+		{
+			const double dy=y-(side-1)/2.0;
+			for(int x=0;x<side;++x)
+			{
+				const double dx=x-(side-1)/2.0;
+				const int sx=static_cast<int>(std::lround(cx+dx*cs+dy*sn));
+				const int sy=static_cast<int>(std::lround(cy-dx*sn+dy*cs));
+				if(sx<0 || sy<0 || sx>=image.GetWidth() || sy>=image.GetHeight())
+					continue;
+				const size_t src=static_cast<size_t>(sy)*image.GetWidth()+sx;
+				const size_t dst=static_cast<size_t>(y)*side+x;
+				std::memcpy(frame.GetData()+3*dst,image.GetData()+3*src,3);
+				frame.GetAlpha()[dst]=image.GetAlpha()[src];
+			}
+		}
+		frames.push_back(std::move(frame));
+	}
+	return frames;
+}
+
+// High resolution illustration/photo -> cutout, 96px-scale, optional 8
+// headings -> original UNITS.PAL quantization -> FSU -> immediately selectable
+// graphics group for the currently edited unit.
+void FormUnitsEdit::OnGenerateGameSprites(wxCommandEvent& event)
+{
+	if(!m_unit || !m_spell_data || !m_spell_data->units_fsu)
+	{
+		wxMessageBox("Select your new unit in the DEF editor first.",
+			"Create game sprites",wxOK|wxICON_INFORMATION,this);
+		return;
+	}
+	wxFileDialog chooseArt(this,"Select an illustration or photo (PNG)",
+		wxEmptyString,wxEmptyString,"PNG files (*.png)|*.png",
+		wxFD_OPEN|wxFD_FILE_MUST_EXIST);
+	if(chooseArt.ShowModal()!=wxID_OK)
+		return;
+	const auto source=std::filesystem::path(chooseArt.GetPath().ToStdWstring());
+
+	wxDialog options(this,wxID_ANY,"Create Spellcross unit graphics",
+		wxDefaultPosition,wxSize(520,400),wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER);
+	auto layout=new wxBoxSizer(wxVERTICAL);
+	layout->Add(new wxStaticText(&options,wxID_ANY,
+		"Convert the source picture into small transparent game sprites.\n"
+		"Automatic rotation works best with top-down vehicles and aircraft."),
+		0,wxALL,12);
+	auto grid=new wxFlexGridSizer(2,8,10);
+	grid->AddGrowableCol(1,1);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"FSU graphics group:"),0,wxALIGN_CENTER_VERTICAL);
+	auto groupField=new wxTextCtrl(&options,wxID_ANY,"U001");
+	grid->Add(groupField,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Max object size (pixels):"),0,wxALIGN_CENTER_VERTICAL);
+	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
+		wxSP_ARROW_KEYS,32,160,96);
+	grid->Add(sizeField,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Facing directions:"),0,wxALIGN_CENTER_VERTICAL);
+	wxArrayString modes;
+	modes.Add("8 rotated views - aircraft/top-down object");
+	modes.Add("One fixed view - perspective artwork");
+	auto rotationField=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,modes);
+	rotationField->SetSelection(0);
+	grid->Add(rotationField,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Background tolerance:"),0,wxALIGN_CENTER_VERTICAL);
+	auto toleranceField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
+		wxSP_ARROW_KEYS,0,100,32);
+	grid->Add(toleranceField,1,wxEXPAND);
+	layout->Add(grid,0,wxEXPAND|wxLEFT|wxRIGHT,12);
+	auto backgroundField=new wxCheckBox(&options,wxID_ANY,
+		"Remove plain background connected to image edges");
+	backgroundField->SetValue(true);
+	layout->Add(backgroundField,0,wxALL,12);
+	layout->Add(new wxStaticText(&options,wxID_ANY,
+		"Transparent source PNGs keep their transparency. The original\n"
+		"artwork is never modified. A preview is shown before exporting."),
+		0,wxLEFT|wxRIGHT|wxBOTTOM,12);
+	auto buttons=new wxStdDialogButtonSizer();
+	buttons->AddButton(new wxButton(&options,wxID_OK,"Preview sprites"));
+	buttons->AddButton(new wxButton(&options,wxID_CANCEL,"Cancel"));
+	buttons->Realize();
+	layout->Add(buttons,0,wxALL|wxALIGN_RIGHT,12);
+	options.SetSizerAndFit(layout);
+	if(options.ShowModal()!=wxID_OK)
+		return;
+
+	auto group=groupField->GetValue().ToStdString();
+	bool valid=!group.empty() && group.size()<=5;
+	for(unsigned char c:group)
+		valid=valid && ((c>='A'&&c<='Z')||(c>='0'&&c<='9'));
+	if(!valid || m_spell_data->units_fsu->GetResource(group.c_str()))
+	{
+		wxMessageBox("Use a unique 1-5 character group name (A-Z or 0-9).",
+			"Create game sprites",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+
+	std::vector<wxImage> frames;
+	try
+	{
+		wxImage original;
+		if(!original.LoadFile(wxString(source.wstring()),wxBITMAP_TYPE_PNG))
+			throw std::runtime_error("Cannot load the selected source PNG.");
+		frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
+			backgroundField->GetValue(),toleranceField->GetValue(),
+			rotationField->GetSelection()==0);
+	}
+	catch(const std::exception& error)
+	{
+		wxMessageBox("Cannot prepare sprites:\n"+wxString::FromUTF8(error.what()),
+			"Create game sprites",wxOK|wxICON_ERROR,this);
+		return;
+	}
+
+	wxDialog preview(this,wxID_ANY,"Preview game-sized sprites",
+		wxDefaultPosition,wxSize(420,400),wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER);
+	auto previewLayout=new wxBoxSizer(wxVERTICAL);
+	previewLayout->Add(new wxStaticText(&preview,wxID_ANY,
+		"Preview before quantization to Spellcross's original palette:"),
+		0,wxALL,10);
+	auto spriteView=new wxStaticBitmap(&preview,wxID_ANY,wxBitmap(frames[0]));
+	previewLayout->Add(spriteView,1,wxALL|wxALIGN_CENTER_HORIZONTAL,10);
+	wxArrayString headings;
+	for(size_t i=0;i<frames.size();++i)
+		headings.Add(wxString::Format("Direction %d",static_cast<int>(i)+1));
+	auto headingChoice=new wxChoice(&preview,wxID_ANY,wxDefaultPosition,
+		wxDefaultSize,headings);
+	headingChoice->SetSelection(0);
+	headingChoice->Bind(wxEVT_CHOICE,[&](wxCommandEvent&)
+	{
+		spriteView->SetBitmap(wxBitmap(frames[headingChoice->GetSelection()]));
+		preview.Layout();
+	});
+	previewLayout->Add(headingChoice,0,wxEXPAND|wxLEFT|wxRIGHT|wxBOTTOM,10);
+	auto previewButtons=new wxStdDialogButtonSizer();
+	previewButtons->AddButton(new wxButton(&preview,wxID_OK,"Build game graphics"));
+	previewButtons->AddButton(new wxButton(&preview,wxID_CANCEL,"Cancel"));
+	previewButtons->Realize();
+	previewLayout->Add(previewButtons,0,wxALL|wxALIGN_RIGHT,10);
+	preview.SetSizerAndFit(previewLayout);
+	if(preview.ShowModal()!=wxID_OK)
+		return;
+
+	wxDirDialog chooseOutput(this,"Select output folder for generated sprites and mod UNITS.FSU",
+		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+	if(chooseOutput.ShowModal()!=wxID_OK)
+		return;
+	const auto output=std::filesystem::path(chooseOutput.GetPath().ToStdWstring());
+	const auto spritesDir=output/("spellcross_source_"+group);
+	if(std::filesystem::exists(spritesDir) ||
+		std::filesystem::exists(output/"UNITS.FSU") ||
+		std::filesystem::exists(output/("NEW_"+group+".FSU")) ||
+		std::filesystem::exists(output/("spellcross_fsu_"+group)))
+	{
+		wxMessageBox("The output already contains generated sprite files or UNITS.FSU.\n"
+			"Choose an empty mod output folder; nothing will be overwritten.",
+			"Create game sprites",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+	try
+	{
+		std::filesystem::create_directories(spritesDir);
+		auto* pal=m_spell_data->GetPalette("UNITS.PAL");
+		if(!pal)
+			throw std::runtime_error("Original UNITS.PAL is unavailable.");
+		if(pal->SaveInfo(spritesDir/"spellcross_units.palinfo"))
+			throw std::runtime_error("Could not export palette metadata.");
+
+		for(size_t i=0;i<frames.size();++i)
+		{
+			auto code=wxString::Format("F%02d",static_cast<int>(i)).ToStdString();
+			auto pngPath=spritesDir/(code+".png");
+			auto infoPath=spritesDir/(code+".info");
+			if(!frames[i].SaveFile(wxString(pngPath.wstring()),wxBITMAP_TYPE_PNG))
+				throw std::runtime_error("Cannot save generated PNG "+code);
+			SpellGresInfo info;
+			info.path=infoPath;
+			info.info_name=infoPath.filename().string();
+			info.raw_name=code;
+			info.raw_img_name=pngPath.filename().string();
+			info.format=SpellGresInfo::Format::FSU;
+			info.pal_name="spellcross_units.palinfo";
+			info.colors_str="128-223";
+			info.x_size=frames[i].GetWidth();
+			info.y_size=frames[i].GetHeight();
+			info.x_offset=-frames[i].GetWidth()/2;
+			info.y_offset=-frames[i].GetHeight()/2;
+			info.resampling=wxIMAGE_QUALITY_NEAREST;
+			info.is_transparent=true;
+			if(info.SaveInfo(infoPath))
+				throw std::runtime_error("Cannot save generated sprite metadata "+code);
+		}
+
+		// Feed generated image folder into the existing FSU/UNITS.PAL pipeline.
+		m_generated_source=spritesDir;
+		m_generated_output=output;
+		m_generated_group=group;
+		wxCommandEvent buildEvent;
+		OnBuildUnitGraphics(buildEvent);
+	}
+	catch(const std::exception& error)
+	{
+		wxMessageBox("Sprite creation failed:\n"+wxString::FromUTF8(error.what())+
+			"\n\nGenerated intermediates (if any) are in the selected output folder.",
+			"Create game sprites",wxOK|wxICON_ERROR,this);
+	}
+}
 
 // Import all PNG frames in a folder as a fresh FSU resource, merge that resource
 // into a copy of the currently loaded UNITS.FSU, then link it in-memory without
