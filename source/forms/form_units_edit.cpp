@@ -25,6 +25,11 @@
 #include <wx/statbmp.h>
 #include <wx/checkbox.h>
 #include <wx/spinctrl.h>
+#include <wx/stdpaths.h>
+#include <wx/filename.h>
+#include <wx/utils.h>
+#include <wx/busyinfo.h>
+#include <wx/config.h>
 #include <deque>
 #include <array>
 #include <cmath>
@@ -1840,6 +1845,169 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 		frames.push_back(std::move(frame));
 	}
 	return frames;
+}
+
+// Render actual model geometry rather than rotating a flattened PNG.
+// Blender runs outside the editor: no extra 3D library or engine dependency.
+static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
+	const std::filesystem::path& model, int views, int elevation, int heading)
+{
+	static wxString blenderExecutable;
+	if(blenderExecutable.empty())
+	{
+		blenderExecutable=wxGetenv("SPELLCROSS_BLENDER_EXE");
+		if(blenderExecutable.empty())
+			if(auto* cfg=wxConfigBase::Get(false))
+				cfg->Read("CustomUnits/BlenderExecutable",&blenderExecutable);
+	}
+	if(blenderExecutable.empty() ||
+		!std::filesystem::is_regular_file(std::filesystem::path(blenderExecutable.ToStdWstring())))
+	{
+		wxFileDialog browse(parent,"Locate Blender executable (install Blender first)",
+			wxEmptyString,"blender.exe",
+			"Blender application (blender.exe)|blender.exe|Executables (*.exe)|*.exe",
+			wxFD_OPEN|wxFD_FILE_MUST_EXIST);
+		if(browse.ShowModal()!=wxID_OK)
+			throw std::runtime_error("Blender executable was not selected.");
+		blenderExecutable=browse.GetPath();
+		if(auto* cfg=wxConfigBase::Get(false))
+			cfg->Write("CustomUnits/BlenderExecutable",blenderExecutable);
+	}
+	const auto exePath=std::filesystem::path(wxStandardPaths::Get().GetExecutablePath().ToStdWstring());
+	const auto exeDir=exePath.parent_path();
+	const std::vector<std::filesystem::path> scriptCandidates={
+		exeDir/"render_unit_model.py",
+		exeDir/"../../../source/tools/render_unit_model.py",
+		std::filesystem::current_path()/"source/tools/render_unit_model.py"
+	};
+	std::filesystem::path script;
+	for(const auto& candidate : scriptCandidates)
+		if(std::filesystem::is_regular_file(candidate))
+		{
+			script=candidate;
+			break;
+		}
+	if(script.empty())
+		throw std::runtime_error(
+			"Cannot find render_unit_model.py. Keep the script next to the editor "
+			"executable, or run the editor from the source checkout.");
+
+	// Unique scratch directory. Never write render results over a user's model
+	// or over a pre-existing mod folder.
+	const wxString tempName=wxFileName::CreateTempFileName("spellcross_model_");
+	if(tempName.empty())
+		throw std::runtime_error("Cannot create a temporary render directory.");
+	const auto tempDir=std::filesystem::path(tempName.ToStdWstring());
+	std::filesystem::remove(tempDir);
+	std::filesystem::create_directories(tempDir);
+	struct TempDirCleanup{
+		std::filesystem::path value;
+		~TempDirCleanup(){std::error_code ec; std::filesystem::remove_all(value,ec);}
+	} cleanup{tempDir};
+
+	const auto quoted=[](const std::filesystem::path& p)
+	{
+		return wxString("\"")+wxString(p.wstring())+"\"";
+	};
+	const auto program=std::filesystem::path(blenderExecutable.ToStdWstring());
+	wxString cmd=quoted(program)+
+		" --background --factory-startup --python "+quoted(script)+
+		" -- --input "+quoted(model)+" --output "+quoted(tempDir)+
+		wxString::Format(" --views %d --resolution 512 --elevation %d --heading %d --frame 1",
+			views,elevation,heading*45);
+	wxArrayString stdOut,stdErr;
+	long result=0;
+	{
+		wxBusyCursor waiting;
+		wxBusyInfo busy("Rendering model in Blender. Generating real 3D camera views...",parent);
+		result=wxExecute(cmd,stdOut,stdErr,wxEXEC_SYNC|wxEXEC_HIDE_CONSOLE);
+	}
+	if(result!=0)
+	{
+		wxString detail;
+		for(size_t k=(stdErr.size()>8?stdErr.size()-8:0);k<stdErr.size();++k)
+			detail+=stdErr[k]+"\n";
+		if(detail.empty())
+			for(size_t k=(stdOut.size()>5?stdOut.size()-5:0);k<stdOut.size();++k)
+				detail+=stdOut[k]+"\n";
+		throw std::runtime_error(
+			("Blender render failed (exit "+std::to_string(result)+").\n"+
+			detail.ToStdString()));
+	}
+	std::vector<wxImage> images;
+	for(int i=0;i<views;++i)
+	{
+		auto png=tempDir/wxString::Format("view_%02d.png",i).ToStdString();
+		wxImage frame;
+		if(!frame.LoadFile(wxString(png.wstring()),wxBITMAP_TYPE_PNG) || !frame.HasAlpha())
+			throw std::runtime_error("Blender did not produce a transparent RGBA frame: "+png.string());
+		images.push_back(std::move(frame));
+	}
+	return images;
+}
+
+// Maintain one common crop and scale for ALL 3D azimuths.
+// Per-frame auto-crop would make the aircraft grow/shrink as it turns.
+static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& raw,
+	int targetSize, bool groundUnit)
+{
+	if(raw.empty() || !raw[0].IsOk() || !raw[0].HasAlpha())
+		throw std::runtime_error("The model renderer produced no usable frames.");
+	const int sourceW=raw[0].GetWidth(),sourceH=raw[0].GetHeight();
+	int xMin=sourceW,yMin=sourceH,xMax=-1,yMax=-1;
+	for(const auto& image:raw)
+	{
+		if(!image.IsOk() || !image.HasAlpha() ||
+			image.GetWidth()!=sourceW || image.GetHeight()!=sourceH)
+			throw std::runtime_error("Rendered model frames have incompatible sizes.");
+		const uint8_t* a=image.GetAlpha();
+		for(int y=0;y<sourceH;++y)
+			for(int x=0;x<sourceW;++x)
+				if(a[static_cast<size_t>(y)*sourceW+x]>=16)
+				{
+					xMin=std::min(xMin,x); yMin=std::min(yMin,y);
+					xMax=std::max(xMax,x); yMax=std::max(yMax,y);
+				}
+	}
+	if(xMax<xMin || yMax<yMin)
+		throw std::runtime_error("The model renders are entirely transparent.");
+	const int margin=3;
+	xMin=std::max(0,xMin-margin);
+	yMin=std::max(0,yMin-margin);
+	xMax=std::min(sourceW-1,xMax+margin);
+	yMax=std::min(sourceH-1,yMax+margin);
+	const int cropW=xMax-xMin+1, cropH=yMax-yMin+1;
+	const int maxW=groundUnit?40:targetSize;
+	const int maxH=groundUnit?28:targetSize;
+	const double scale=std::min({static_cast<double>(maxW)/cropW,
+		static_cast<double>(maxH)/cropH,1.0});
+	const int outW=std::max(1,static_cast<int>(std::round(cropW*scale)));
+	const int outH=std::max(1,static_cast<int>(std::round(cropH*scale)));
+	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasH=groundUnit?48:static_cast<int>(std::ceil(targetSize*1.5));
+	std::vector<wxImage> result;
+	result.reserve(raw.size());
+	for(const auto& source:raw)
+	{
+		auto img=source.GetSubImage(wxRect(xMin,yMin,cropW,cropH));
+		if(img.GetWidth()!=outW || img.GetHeight()!=outH)
+			img.Rescale(outW,outH,wxIMAGE_QUALITY_BICUBIC);
+		wxImage frame(canvasW,canvasH);
+		frame.InitAlpha();
+		std::memset(frame.GetData(),0,static_cast<size_t>(canvasW)*canvasH*3);
+		std::memset(frame.GetAlpha(),0,static_cast<size_t>(canvasW)*canvasH);
+		const int ox=(canvasW-outW)/2,oy=(canvasH-outH)/2;
+		for(int y=0;y<outH;++y)
+			for(int x=0;x<outW;++x)
+			{
+				const size_t sp=static_cast<size_t>(y)*outW+x;
+				const size_t dp=static_cast<size_t>(y+oy)*canvasW+x+ox;
+				std::memcpy(frame.GetData()+3*dp,img.GetData()+3*sp,3);
+				frame.GetAlpha()[dp]=img.GetAlpha()[sp];
+			}
+		result.push_back(std::move(frame));
+	}
+	return result;
 }
 
 // High resolution illustration/photo -> cutout, 96px-scale, optional 8
