@@ -1569,6 +1569,12 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 		FSarchive base(m_spell_data->common_fs_source_path.wstring(),FSarchive::Options::NONE);
 		if(base.AddFile("JEDNOTKY.DEF",data,true))
 			throw std::runtime_error(base.m_last_error);
+		// I_*.LZ unit icons must travel with their JEDNOTKY.DEF references.
+		for(auto& [name,compressed] : m_custom_icon_lz)
+		{
+			if(base.AddFile(name,compressed,false))
+				throw std::runtime_error("Cannot insert new unit icon "+name+": "+base.m_last_error);
+		}
 		if(base.SaveFile(dest.wstring()))
 			throw std::runtime_error(base.m_last_error);
 		m_spell_data->export_path = dir.wstring();
@@ -2367,6 +2373,13 @@ void FormUnitsEdit::OnTestUnitOnMap(wxCommandEvent& event)
 			wxOK|wxICON_INFORMATION, this);
 		return;
 	}
+	if(m_units->GetUnit(id)->icon.empty())
+	{
+		wxMessageBox("This unit has no custom icon yet. Convert its artwork first, "
+			"or assign an icon explicitly under Graphics.", "Unit map test",
+			wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
 
 	// Existing map units may hold raw pointers; only register new IDs.
 	const int next_id = m_spell_data->units->Count();
@@ -2538,6 +2551,13 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 	const int templateIndex = templateChoice->GetSelection() - 1;
 	auto unit = m_units->AddUnit(templateIndex);
 	unit->name = unitName.ToStdWstring();
+	// Inherit game mechanics from the template, never its visual identity.
+	// The artwork converter creates a dedicated I_*.LZ glyph; without artwork
+	// the icon and info art must be deliberately supplied before gameplay.
+	unit->icon.clear();
+	unit->icon_glyph = nullptr;
+	unit->info.clear();
+	unit->info_imgs.clear();
 
 	// Refresh the virtual list and select the newly created record.
 	wxCommandEvent refresh(wxEVT_COMMAND_LISTBOX_SELECTED, wxID_LBOX_DEFS);
