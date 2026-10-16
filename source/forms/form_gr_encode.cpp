@@ -1327,7 +1327,8 @@ bool FormGResEncoder::OpenInfoResource(const std::filesystem::path& info_path)
 	lboxList->Select(select_id);
 
 	// force encoding
-	OnSelectClick(event);
+	wxCommandEvent loadEvent;
+	OnSelectClick(loadEvent);
 	wxCommandEvent evt;
 	OnRegenClick(evt);
 	return true;
