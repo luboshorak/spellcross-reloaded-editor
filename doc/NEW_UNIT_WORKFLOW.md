@@ -29,7 +29,7 @@ Edit parameters in the existing **Basic**, **Graphics**, **Sounds** and
    can create one of these automatically.
 2. Select the newly created unit and click
    **Build PNG graphics / UNITS.FSU...**.
-3. Enter a **unique 1–5 character FSU resource group name**, for example
+3. Enter a **unique 1–5 character FSU resource group name** (A–Z, 0–9), for example
    `NEW01`. Choose the PNG folder and an **empty mod output folder**.
 4. The editor quantizes all PNGs against the game's original `UNITS.PAL`
    (indexes 128–223), encodes each sprite with existing
