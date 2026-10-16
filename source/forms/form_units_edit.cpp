@@ -11,6 +11,7 @@
 #include "spell_palette.h"
 #include "spell_filter.h"
 #include "form_gr_encode.h"
+#include "main.h"
 #include "wx_other.h"
 
 #include <wx/msgdlg.h>
@@ -452,6 +453,9 @@ FormUnitsEdit::FormUnitsEdit( wxWindow* parent, wxWindowID id,SpellData *spell_d
 	auto newUnitButton = new wxButton(this, wxID_ANY, "New unit...");
 	bSizer130->Add(newUnitButton, 0, wxALL|wxEXPAND, 5);
 	newUnitButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnNewUnit, this);
+	auto testUnitButton = new wxButton(this, wxID_ANY, "Place / test on map...");
+	bSizer130->Add(testUnitButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
+	testUnitButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnTestUnitOnMap, this);
 	Layout();
 	
 	// set icon
@@ -1505,6 +1509,69 @@ void FormUnitsEdit::OnUnitEndDrag(wxMouseEvent& event)
 	}
 }
 
+
+
+
+// Register only the selected, newly appended DEF record. The SpellData linker
+// resolves FSU, icon, animation and sound pointers before making it visible.
+void FormUnitsEdit::OnTestUnitOnMap(wxCommandEvent& event)
+{
+	if(!m_units || !m_spell_data || !m_spell_data->units)
+	{
+		wxMessageBox("Open a working JEDNOTKY.DEF first.", "Unit map test",
+			wxOK|wxICON_INFORMATION, this);
+		return;
+	}
+	int id = lboxUnits->GetNextItem(-1,wxLIST_NEXT_ALL,wxLIST_STATE_SELECTED);
+	if(id < 0 || !m_units->GetUnit(id))
+	{
+		wxMessageBox("Select the custom unit you want to test.", "Unit map test",
+			wxOK|wxICON_INFORMATION, this);
+		return;
+	}
+
+	// Never reassign the address of a unit which may already be on a map.
+	if(id != m_spell_data->units->Count())
+	{
+		wxMessageBox(string_format("Selected unit is #%d, next available live unit ID is #%d.\n"
+			"Register added units in order. Existing unit IDs cannot be replaced while a map is loaded.",
+			id,m_spell_data->units->Count()),"Unit map test",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+
+	std::vector<uint8_t> def;
+	if(m_units->GenerateDEF(def))
+	{
+		wxMessageBox("Cannot serialize JEDNOTKY.DEF. Check unit names and resource fields.",
+			"Unit map test",wxOK|wxICON_ERROR,this);
+		return;
+	}
+	const size_t rec_size = m_units->isEng() ? 207 : 206;
+	const size_t start = static_cast<size_t>(id) * rec_size;
+	if(def.size() < start + rec_size)
+	{
+		wxMessageBox("Invalid DEF record length.", "Unit map test",wxOK|wxICON_ERROR,this);
+		return;
+	}
+	std::vector<uint8_t> record(def.begin() + start,def.begin() + start + rec_size);
+	std::string error;
+	if(m_spell_data->RegisterUnitForMap(record,id,error))
+	{
+		wxMessageBox("Unit cannot be registered for map preview:\n" + wxString::FromUTF8(error.c_str()),
+			"Unit map test",wxOK|wxICON_ERROR,this);
+		return;
+	}
+
+	auto* main = dynamic_cast<MainFrame*>(GetParent());
+	if(!main || !main->OpenCustomUnitPlacement(id))
+	{
+		wxMessageBox("Unit registered in the editor. Load a map and use the usual Add unit tool "
+			"to place it. It remains available until game data are reloaded.",
+			"Unit map test",wxOK|wxICON_INFORMATION,this);
+		return;
+	}
+	SetStatusText("Unit registered and selected in map placement tool. Save the mod assets separately.");
+}
 
 
 // Guided unit creation. The existing DEF/property editors remain the source of
