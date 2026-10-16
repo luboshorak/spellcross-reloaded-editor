@@ -406,6 +406,12 @@
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- Keep Blender renderer next to the editor EXE for direct model imports. -->
+  <Target Name="CopySpellcrossUnitModelRenderer" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)tools\render_unit_model.py"
+          DestinationFiles="$(OutDir)render_unit_model.py"
+          SkipUnchangedFiles="true" />
+  </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
