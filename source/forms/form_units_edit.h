@@ -86,8 +86,9 @@ class FormUnitsEdit : public wxFrame
 		void OnBuildUnitGraphics(wxCommandEvent& event);
 		void OnGenerateGameSprites(wxCommandEvent& event);
 		void GenerateGameSpritesFromSource(const std::filesystem::path& source);
-		void BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
+		bool BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
 			const std::filesystem::path& output, const std::string& group);
+		bool CreateUnitIcon(const wxImage& sprite, const std::string& group);
 		// New graphics embedded into COMMON.FS when the mod is exported.
 		std::map<std::string, std::vector<uint8_t>> m_custom_icon_lz;
 		void OnExportUnitMod(wxCommandEvent& event);
