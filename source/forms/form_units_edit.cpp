@@ -11,6 +11,7 @@
 #include "spell_palette.h"
 #include "spell_filter.h"
 #include "form_gr_encode.h"
+#include <wx/app.h> // wxApp base class used in main.h
 #include "main.h"
 #include "fs_archive.h"
 #include "wx_other.h"
@@ -1623,9 +1624,6 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 	std::filesystem::path output = outputDialog.GetPath().ToStdWstring();
 	m_spell_data->export_path = output.wstring();
 
-	palette->ClearUserRange();
-	palette->AddUserRangeStr("128-223");
-
 	const auto stage = output / ("spellcross_fsu_" + group);
 	const auto stage_group = stage / group;
 	const auto unitArchive = output / ("NEW_" + group + ".FSU");
@@ -1645,6 +1643,8 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 			wxOK|wxICON_ERROR,this);
 		return;
 	}
+	palette->ClearUserRange();
+	palette->AddUserRangeStr("128-223");
 
 	struct SourceSprite {
 		std::filesystem::path png;
@@ -1717,7 +1717,7 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 
 		// Only after all inputs have been validated do we create export files.
 		std::filesystem::create_directories(stage_group);
-		for(const auto& item : sources)
+		for(auto& item : sources)
 		{
 			wxBitmap bmp;
 			if(!bmp.LoadFile(wxString(item.png.wstring()),wxBITMAP_TYPE_PNG))
