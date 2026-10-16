@@ -1935,9 +1935,9 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	}
 
 	std::vector<wxImage> frames;
+	wxImage original; // also needed later for INFO.FS artwork generation
 	try
 	{
-		wxImage original;
 		if(!original.LoadFile(wxString(source.wstring()),wxBITMAP_TYPE_PNG))
 			throw std::runtime_error("Cannot load the selected source PNG.");
 		frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
