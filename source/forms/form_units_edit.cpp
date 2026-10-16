@@ -1984,7 +1984,8 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 // Render actual model geometry rather than rotating a flattened PNG.
 // Blender runs outside the editor: no extra 3D library or engine dependency.
 static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
-	const std::filesystem::path& model, int views, int elevation, int heading, int lighting)
+	const std::filesystem::path& model, int views, int elevation, int heading,
+	int lighting, std::vector<wxImage>* walkingFrames)
 {
 	static wxString blenderExecutable;
 	if(blenderExecutable.empty())
@@ -2047,8 +2048,8 @@ static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
 	wxString cmd=quoted(program)+
 		" --background --factory-startup --python "+quoted(script)+
 		" -- --input "+quoted(model)+" --output "+quoted(tempDir)+
-		wxString::Format(" --views %d --resolution 1024 --elevation %d --heading %d --lighting %d --frame 1",
-			views,elevation,heading*45,lighting);
+		wxString::Format(" --views %d --resolution 1024 --elevation %d --heading %d --lighting %d --frame 1 --walk-frames %d",
+			views,elevation,heading*45,lighting,walkingFrames?10:0);
 	wxArrayString stdOut,stdErr;
 	long result=0;
 	{
@@ -2076,6 +2077,26 @@ static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
 		if(!frame.LoadFile(wxString(png.wstring()),wxBITMAP_TYPE_PNG) || !frame.HasAlpha())
 			throw std::runtime_error("Blender did not produce a transparent RGBA frame: "+png.string());
 		images.push_back(std::move(frame));
+	}
+	if(walkingFrames)
+	{
+		// Static models do not contain a Blender Action; use still poses as
+		// a safe fallback. When an animation exists, Blender exports all 80
+		// movement images and the editor preserves those distinct frames.
+		const auto first=tempDir/"move_00_00.png";
+		if(std::filesystem::exists(first))
+			for(int pose=0;pose<10;++pose)
+				for(int direction=0;direction<8;++direction)
+				{
+					const auto png=tempDir/wxString::Format("move_%02d_%02d.png",
+						pose,direction).ToStdString();
+					wxImage image;
+					if(!image.LoadFile(wxString(png.wstring()),wxBITMAP_TYPE_PNG) ||
+						!image.HasAlpha())
+						throw std::runtime_error("Incomplete Blender movement pose export: "+
+							png.string());
+					walkingFrames->push_back(std::move(image));
+				}
 	}
 	return images;
 }
