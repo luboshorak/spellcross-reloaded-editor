@@ -1906,30 +1906,34 @@ void FormUnitsEdit::OnGenerateGameSprites(wxCommandEvent& event)
 		if(pal->SaveInfo(spritesDir/"spellcross_units.palinfo"))
 			throw std::runtime_error("Could not export palette metadata.");
 
+		// Each still image is also supplied as a one-frame movement pose.
+		// Axx precedes Fxx in the FSU parser, so the group receives both
+		// an 8-azimuth animation (1 frame) and an 8-azimuth static set.
 		for(size_t i=0;i<frames.size();++i)
-		{
-			auto code=wxString::Format("F%02d",static_cast<int>(i)).ToStdString();
-			auto pngPath=spritesDir/(code+".png");
-			auto infoPath=spritesDir/(code+".info");
-			if(!frames[i].SaveFile(wxString(pngPath.wstring()),wxBITMAP_TYPE_PNG))
-				throw std::runtime_error("Cannot save generated PNG "+code);
-			SpellGresInfo info;
-			info.path=infoPath;
-			info.info_name=infoPath.filename().string();
-			info.raw_name=code;
-			info.raw_img_name=pngPath.filename().string();
-			info.format=SpellGresInfo::Format::FSU;
-			info.pal_name="spellcross_units.palinfo";
-			info.colors_str="128-223";
-			info.x_size=frames[i].GetWidth();
-			info.y_size=frames[i].GetHeight();
-			info.x_offset=-frames[i].GetWidth()/2;
-			info.y_offset=-frames[i].GetHeight()/2;
-			info.resampling=wxIMAGE_QUALITY_NEAREST;
-			info.is_transparent=true;
-			if(info.SaveInfo(infoPath))
-				throw std::runtime_error("Cannot save generated sprite metadata "+code);
-		}
+			for(char prefix : {'A','F'})
+			{
+				const auto code=(wxString::Format("%c%02d",prefix,static_cast<int>(i))).ToStdString();
+				auto pngPath=spritesDir/(code+".png");
+				auto infoPath=spritesDir/(code+".info");
+				if(!frames[i].SaveFile(wxString(pngPath.wstring()),wxBITMAP_TYPE_PNG))
+					throw std::runtime_error("Cannot save generated PNG "+code);
+				SpellGresInfo info;
+				info.path=infoPath;
+				info.info_name=infoPath.filename().string();
+				info.raw_name=code;
+				info.raw_img_name=pngPath.filename().string();
+				info.format=SpellGresInfo::Format::FSU;
+				info.pal_name="spellcross_units.palinfo";
+				info.colors_str="128-223";
+				info.x_size=frames[i].GetWidth();
+				info.y_size=frames[i].GetHeight();
+				info.x_offset=-frames[i].GetWidth()/2;
+				info.y_offset=-frames[i].GetHeight()/2;
+				info.resampling=wxIMAGE_QUALITY_NEAREST;
+				info.is_transparent=true;
+				if(info.SaveInfo(infoPath))
+					throw std::runtime_error("Cannot save generated sprite metadata "+code);
+			}
 
 		// Feed generated image folder into the existing FSU/UNITS.PAL pipeline.
 		m_generated_source=spritesDir;
