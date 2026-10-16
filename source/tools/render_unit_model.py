@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument('--elevation', type=float, default=40.0)
     parser.add_argument('--heading', type=float, default=0.0)
     parser.add_argument('--frame', type=int, default=1)
+    parser.add_argument('--walk-frames', type=int, choices=[0,10], default=0)
     parser.add_argument('--lighting', type=int, default=100,
                         help='Lighting intensity percentage, 25..200 (default 100)')
     return parser.parse_args(argv)
@@ -85,6 +86,9 @@ def render_views(args):
     scene = bpy.context.scene
     scene.frame_set(args.frame)
     center, radius = bounds()
+    animations = list(bpy.data.actions)
+    # Blender imports glTF/FBX animation clips as Actions. Do not invent
+    # walking poses for static meshes; the C++ side provides a fallback.
 
     # Engine identifiers changed around Blender 4.2 / 5.x.
     # Try available operators directly rather than introspecting enum items.
@@ -142,6 +146,28 @@ def render_views(args):
         scene.render.filepath = str(output/('view_%02d.png' % index))
         bpy.ops.render.render(write_still=True)
         print('SPELLCROSS_RENDERED',index+1,args.views,scene.render.filepath,flush=True)
+    if args.walk_frames:
+        if not animations:
+            print('SPELLCROSS_NO_MOVEMENT_ANIMATION', flush=True)
+            return
+        first = min(float(act.frame_range[0]) for act in animations)
+        last = max(float(act.frame_range[1]) for act in animations)
+        # 10 original-style movement poses x 8 directions. Keep the same
+        # orthographic camera and scene lighting as the standing renders.
+        for pose in range(args.walk_frames):
+            fraction = pose / float(args.walk_frames)
+            scene.frame_set(int(round(first + (last-first)*fraction)))
+            for direction_id in range(8):
+                az = math.radians(args.heading + direction_id * 45.0)
+                direction = Vector((math.sin(az)*math.cos(elevation),
+                                    -math.cos(az)*math.cos(elevation),
+                                    math.sin(elevation)))
+                cam.location = center + direction*(radius*3.5)
+                cam.rotation_euler = (center-cam.location).to_track_quat('-Z','Y').to_euler()
+                scene.render.filepath = str(output/('move_%02d_%02d.png' %
+                                                    (pose,direction_id)))
+                bpy.ops.render.render(write_still=True)
+                print('SPELLCROSS_WALK_RENDERED',pose,direction_id,flush=True)
 
 if __name__ == '__main__':
     try:
