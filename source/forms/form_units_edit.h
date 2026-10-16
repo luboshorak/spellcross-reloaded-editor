@@ -78,10 +78,9 @@ class FormUnitsEdit : public wxFrame
 		void OnTestUnitOnMap(wxCommandEvent& event);
 		void OnBuildUnitGraphics(wxCommandEvent& event);
 		void OnGenerateGameSprites(wxCommandEvent& event);
-		std::filesystem::path m_auto_source_png;
-		std::filesystem::path m_generated_source;
-		std::filesystem::path m_generated_output;
-		std::string m_generated_group;
+		void GenerateGameSpritesFromSource(const std::filesystem::path& source);
+		void BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
+			const std::filesystem::path& output, const std::string& group);
 		void OnExportUnitMod(wxCommandEvent& event);
 
 		wxString OnGetUnitName(long item);
