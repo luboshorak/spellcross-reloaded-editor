@@ -29,10 +29,16 @@ embedded into the editor.
    points toward**. The default assumes forward is negative Y in the
    imported scene; each subsequent camera direction steps by 45 degrees.
    Set **Facing directions** to *8 real 3D camera viewpoints*.
-6. Blender renders transparent 512×512 PNGs with consistent orthographic
+6. Blender renders transparent 1024×1024 PNGs with consistent orthographic
    magnification. The editor computes a **shared crop/scale across all
    angles**, produces 8 game-scale images, and previews each angle.
    Neither model nor textures are modified.
+   The **Improve game sprite brightness and fine detail** checkbox is enabled
+   by default: the editor lifts dark midtones, mildly boosts saturation and
+   applies alpha-safe edge sharpening **after downscaling and before**
+   the fixed `UNITS.PAL` quantization. Disable it to compare with the
+   untreated render. Blender also uses broad scale-aware lighting, four
+   area lights, ambient fill and slightly higher exposure.
 7. Select **Build game graphics**, choose a fresh output folder, and the
    editor encodes the directions as `A00–A07` and `F00–F07` using the
    original `UNITS.PAL` and merges them into a modded `UNITS.FSU`.
