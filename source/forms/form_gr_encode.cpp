@@ -1803,43 +1803,42 @@ void FormGResEncoder::OnRegenPaletteClick(wxCommandEvent& event)
 // render source
 void FormGResEncoder::OnPaintSource(wxPaintEvent& event)
 {
-	m_source_mutex.lock();
+	wxPaintDC pdc(canvasSrc);
+	std::lock_guard<std::mutex> lock(m_source_mutex);
+	const int surf_x = canvasSrc->GetClientSize().GetWidth();
+	const int surf_y = canvasSrc->GetClientSize().GetHeight();
+	if(surf_x <= 0 || surf_y <= 0)
+		return;
 
-	int x_surf = canvasSrc->GetClientSize().GetWidth();
-	int y_surf = canvasSrc->GetClientSize().GetHeight();
-	int x_size = m_source.GetWidth();
-	int y_size = m_source.GetHeight();
-	
-	if(x_size && y_size && x_surf >= x_size && y_surf >= y_size)
-	{
-		// source fits canvas
-		
-		// blit to screen
-		wxPaintDC pdc(canvasSrc);
-
-		// make background		
-		int checker_step = 32;
-		for(int y = 0; y < y_surf; y += checker_step)
+	// Always paint the checkerboard, including when the original artwork is
+	// larger than the preview. The old renderer silently showed a blank panel.
+	const int checker_step = 24;
+	for(int y = 0; y < surf_y; y += checker_step)
+		for(int x = 0; x < surf_x; x += checker_step)
 		{
-			for(int x = 0; x < x_surf; x += checker_step)
-			{
-				bool tile = ((x/checker_step)^(y/checker_step)) & 1;
-				auto color = wxColor(tile?0x00888888:0x00AAAAAA);
-				pdc.SetBrush(wxBrush(color,wxBRUSHSTYLE_SOLID));
-				pdc.SetPen(wxPen(color,1,wxPENSTYLE_SOLID));					
-				auto to = wxPoint(min(x + checker_step,x_surf - 1),min(y + checker_step,y_surf - 1));
-				pdc.DrawRectangle(wxRect(wxPoint(x,y),to));
-			}
+			const bool tile = ((x/checker_step)^(y/checker_step)) & 1;
+			pdc.SetPen(*wxTRANSPARENT_PEN);
+			pdc.SetBrush(wxBrush(tile ? wxColour(136,136,136) : wxColour(170,170,170)));
+			pdc.DrawRectangle(x,y,std::min(checker_step,surf_x-x),std::min(checker_step,surf_y-y));
 		}
 
-		// render image
-		int x_ofs = (x_surf - x_size)/2;
-		int y_ofs = (y_surf - y_size)/2;
-		pdc.DrawBitmap(m_source,wxPoint(x_ofs,y_ofs));
-	}
+	if(!m_source.IsOk() || m_source.GetWidth() <= 0 || m_source.GetHeight() <= 0)
+		return;
 
-	m_source_mutex.unlock();
+	const double fit = std::min({1.0,static_cast<double>(surf_x)/m_source.GetWidth(),
+		static_cast<double>(surf_y)/m_source.GetHeight()});
+	const int draw_x = std::max(1,static_cast<int>(m_source.GetWidth()*fit));
+	const int draw_y = std::max(1,static_cast<int>(m_source.GetHeight()*fit));
+	if(draw_x == m_source.GetWidth() && draw_y == m_source.GetHeight())
+		pdc.DrawBitmap(m_source,(surf_x-draw_x)/2,(surf_y-draw_y)/2,true);
+	else
+	{
+		auto preview = m_source.ConvertToImage();
+		preview.Rescale(draw_x,draw_y,wxIMAGE_QUALITY_BILINEAR);
+		pdc.DrawBitmap(wxBitmap(preview),(surf_x-draw_x)/2,(surf_y-draw_y)/2,true);
+	}
 }
+
 
 // change view setup
 void FormGResEncoder::OnViewClick(wxCommandEvent& event)
