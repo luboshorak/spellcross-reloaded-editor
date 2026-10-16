@@ -1975,19 +1975,16 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 		return;
 	}
 
-	if(source.empty())
-	{
-		wxDirDialog sourceDialog(this,"Select folder of PNG unit sprites (all directions/frames)",
-			m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
-		if(sourceDialog.ShowModal() != wxID_OK)
-			return;
-		source = sourceDialog.GetPath().ToStdWstring();
-		wxDirDialog outputDialog(this,"Select an export folder for modded UNITS.FSU",
-			m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
-		if(outputDialog.ShowModal() != wxID_OK)
-			return;
-		output = outputDialog.GetPath().ToStdWstring();
-	}
+	wxDirDialog sourceDialog(this,"Select folder of PNG unit sprites (all directions/frames)",
+		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+	if(sourceDialog.ShowModal() != wxID_OK)
+		return;
+	const std::filesystem::path source = sourceDialog.GetPath().ToStdWstring();
+	wxDirDialog outputDialog(this,"Select an export folder for modded UNITS.FSU",
+		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+	if(outputDialog.ShowModal() != wxID_OK)
+		return;
+	const std::filesystem::path output = outputDialog.GetPath().ToStdWstring();
 	m_spell_data->export_path = output.wstring();
 	BuildUnitGraphicsFromFolder(source,output,group);
 }
