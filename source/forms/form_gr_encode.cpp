@@ -1282,18 +1282,30 @@ void FormGResEncoder::OnOpenClick(wxCommandEvent& event)
 		return;
 	}	
 	
+	OpenInfoResource(std::filesystem::path(path));
+
+}
+
+// Shared import path for file-open and new-unit workflow.
+bool FormGResEncoder::OpenInfoResource(const std::filesystem::path& info_path)
+{
+	if(m_thread_active)
+	{
+		wxMessageBox("Encoding resources is still in progress.","Encode resources",wxICON_EXCLAMATION);
+		return false;
+	}
 	// load resource
-	if(LoadResource(path,0))
+	if(LoadResource(info_path,0))
 	{
 		wxMessageBox(string_format("Failed loading graphic resource:\n%s",m_last_error),"Open glyph resource",wxICON_EXCLAMATION);
-		return;
+		return false;
 	}
 	
 	// load all other resources with shared palette
 	lboxList->Clear();
 	lboxList->Freeze();
 	int select_id = -1;
-	for(const auto& entry : std::filesystem::directory_iterator(std::filesystem::path(path).parent_path()))
+	for(const auto& entry : std::filesystem::directory_iterator(info_path.parent_path()))
 	{
 		auto name = entry.path().filename().string();
 		if(!wildcmp("*.info",name.c_str()))
@@ -1318,6 +1330,7 @@ void FormGResEncoder::OnOpenClick(wxCommandEvent& event)
 	OnSelectClick(event);
 	wxCommandEvent evt;
 	OnRegenClick(evt);
+	return true;
 
 }
 
