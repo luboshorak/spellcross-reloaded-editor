@@ -33,6 +33,9 @@
 #include <deque>
 #include <array>
 #include <cmath>
+#include <algorithm>
+#include <cstdint>
+#include <vector>
 #include <cstring>
 #include <wx/stattext.h>
 #include <wx/button.h>
@@ -2010,6 +2013,88 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 	return result;
 }
 
+// Lighten dark midtones and recover edges lost when downsampling a large
+// model render into a 40-100px game sprite. RGB only: preserve exact alpha.
+// Work after resizing but before converting to the fixed Spellcross palette.
+static void EnhanceGameSprite(wxImage& image)
+{
+	if(!image.IsOk())
+		return;
+	const int w=image.GetWidth(),h=image.GetHeight();
+	if(w<=0 || h<=0)
+		return;
+	const size_t pixels=static_cast<size_t>(w)*h;
+	auto* rgb=image.GetData();
+	const auto* alpha=image.HasAlpha()?image.GetAlpha():nullptr;
+	if(!rgb)
+		return;
+	std::vector<uint8_t> tonemapped(pixels*3);
+	auto byteClamp=[](double n)->uint8_t
+	{
+		return static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(n)),0,255));
+	};
+
+	// Midtone lift is intentionally nonlinear: pure blacks and whites remain
+	// largely intact, while the dark aircraft/vehicle body becomes readable.
+	for(size_t p=0;p<pixels;++p)
+	{
+		if(alpha && alpha[p]<16)
+		{
+			std::copy_n(rgb+3*p,3,tonemapped.data()+3*p);
+			continue;
+		}
+		double c[3];
+		for(int k=0;k<3;++k)
+		{
+			const double value=rgb[3*p+k]/255.0;
+			c[k]=std::clamp((std::pow(value,0.78)-0.46)*1.06+0.46,0.0,1.0);
+		}
+		const double gray=0.2126*c[0]+0.7152*c[1]+0.0722*c[2];
+		for(int k=0;k<3;++k)
+			tonemapped[3*p+k]=byteClamp(
+				std::clamp(gray+(c[k]-gray)*1.08,0.0,1.0)*255.0);
+	}
+
+	// Alpha-aware 3x3 Gaussian unsharp mask. The transparent canvas must not
+	// darken edge pixels, and alpha itself must NEVER be sharpened.
+	constexpr int weight[3]={1,2,1};
+	for(int y=0;y<h;++y)
+		for(int x=0;x<w;++x)
+		{
+			const size_t p=static_cast<size_t>(y)*w+x;
+			if(alpha && alpha[p]<200)
+			{
+				std::copy_n(tonemapped.data()+3*p,3,rgb+3*p);
+				continue;
+			}
+			double sums[3]={0.0,0.0,0.0};
+			double weightSum=0.0;
+			for(int dy=-1;dy<=1;++dy)
+			{
+				const int yy=y+dy;
+				if(yy<0 || yy>=h)continue;
+				for(int dx=-1;dx<=1;++dx)
+				{
+					const int xx=x+dx;
+					if(xx<0 || xx>=w)continue;
+					const size_t q=static_cast<size_t>(yy)*w+xx;
+					const double coverage=alpha?alpha[q]/255.0:1.0;
+					const double factor=weight[dx+1]*weight[dy+1]*coverage;
+					if(factor<=0.0)continue;
+					for(int k=0;k<3;++k)
+						sums[k]+=tonemapped[3*q+k]*factor;
+					weightSum+=factor;
+				}
+			}
+			for(int k=0;k<3;++k)
+			{
+				const double c=tonemapped[3*p+k];
+				const double blur=weightSum>0.0?sums[k]/weightSum:c;
+				rgb[3*p+k]=byteClamp(c+0.50*(c-blur));
+			}
+		}
+}
+
 // High resolution illustration/photo -> cutout, 96px-scale, optional 8
 // headings -> original UNITS.PAL quantization -> FSU -> immediately selectable
 // graphics group for the currently edited unit.
@@ -2099,6 +2184,10 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	backgroundField->SetValue(!model3D);
 	backgroundField->Enable(!model3D);
 	layout->Add(backgroundField,0,wxALL,12);
+	auto enhanceField=new wxCheckBox(&options,wxID_ANY,
+		"Improve game sprite brightness and fine detail (recommended)");
+	enhanceField->SetValue(true);
+	layout->Add(enhanceField,0,wxLEFT|wxRIGHT|wxBOTTOM,12);
 	layout->Add(new wxStaticText(&options,wxID_ANY,
 		model3D ? "Blender renders transparent RGBA frames with a fixed orthographic\n"
 			"camera scale. Your model and textures remain unchanged."
@@ -2147,6 +2236,11 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 				rotationField->GetSelection()==0,unitMode->GetSelection()==1,
 				m_unit->gr_base,sourceHeadingField->GetSelection());
 		}
+		// Improve readability for the low-resolution indexed game palette.
+		// Applied to both 3D and legacy PNG input, not to the original file.
+		if(enhanceField->GetValue())
+			for(auto& sprite:frames)
+				EnhanceGameSprite(sprite);
 		// A one-view model still needs 8 azimuth slots because the game
 		// indexes direction tables with an azimuth ID, including static views.
 		if(frames.size()==1)
