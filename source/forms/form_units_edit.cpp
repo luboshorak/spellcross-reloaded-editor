@@ -10,12 +10,20 @@
 #include "spell_units.h"
 #include "spell_palette.h"
 #include "spell_filter.h"
+#include "form_gr_encode.h"
 #include "wx_other.h"
 
 #include <wx/msgdlg.h>
 #include <wx/filedlg.h>
 #include <wx/dirdlg.h>
 #include <wx/dragimag.h>
+#include <wx/stattext.h>
+#include <wx/button.h>
+#include <wx/textctrl.h>
+#include <wx/choice.h>
+#include <wx/notebook.h>
+#include <wx/sizer.h>
+#include <cctype>
 
 ///////////////////////////////////////////////////////////////////////////
 
@@ -436,6 +444,15 @@ FormUnitsEdit::FormUnitsEdit( wxWindow* parent, wxWindowID id,SpellData *spell_d
 	// </wxFormsBuilder> - Section auto-inserted from 'forms.cpp' class 'FormUnitsEdit' on 2026-10-12 19:24:03
 
 	RescaleWindowDPI(this);
+
+	// Keep added controls outside the wxFormBuilder-generated section.
+	const auto newUnitMenuId = wxWindow::NewControlId();
+	mmFile->Insert(1, newUnitMenuId, "New unit...\tCtrl+N");
+	Bind(wxEVT_MENU, &FormUnitsEdit::OnNewUnit, this, newUnitMenuId);
+	auto newUnitButton = new wxButton(this, wxID_ANY, "New unit...");
+	bSizer130->Add(newUnitButton, 0, wxALL|wxEXPAND, 5);
+	newUnitButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnNewUnit, this);
+	Layout();
 	
 	// set icon
 	wxIcon appIcon;
@@ -1485,6 +1502,259 @@ void FormUnitsEdit::OnUnitEndDrag(wxMouseEvent& event)
 }
 
 
+
+// Guided unit creation. The existing DEF/property editors remain the source of
+// truth; this dialog only adds a record after validating the optional PNG import.
+void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
+{
+	if(!m_units)
+	{
+		wxMessageBox("Open a JEDNOTKY.DEF file first (File > Open units DEF file(s)).",
+			"New unit", wxOK|wxICON_INFORMATION, this);
+		return;
+	}
+
+	wxDialog dialog(this, wxID_ANY, "Create Spellcross unit", wxDefaultPosition,
+		wxSize(660, 470), wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER);
+	auto outer = new wxBoxSizer(wxVERTICAL);
+	auto pages = new wxNotebook(&dialog, wxID_ANY);
+
+	// Page 1: pick a safe set of default values by cloning an existing unit.
+	auto basics = new wxPanel(pages);
+	auto basicsSizer = new wxBoxSizer(wxVERTICAL);
+	basicsSizer->Add(new wxStaticText(basics, wxID_ANY,
+		"Start from a similar unit to inherit combat stats, sounds and animations."),
+		0, wxALL, 10);
+	auto basicFields = new wxFlexGridSizer(2, 8, 10);
+	basicFields->AddGrowableCol(1, 1);
+	basicFields->Add(new wxStaticText(basics, wxID_ANY, "Template:"), 0, wxALIGN_CENTER_VERTICAL);
+	wxArrayString templates;
+	templates.Add("(empty definition)");
+	for(int id = 0; id < m_units->Count(); ++id)
+		templates.Add(OnGetUnitName(id));
+	auto templateChoice = new wxChoice(basics, wxID_ANY, wxDefaultPosition, wxDefaultSize, templates);
+	auto selectedUnit = lboxUnits->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+	templateChoice->SetSelection(selectedUnit >= 0 && selectedUnit < m_units->Count() ? selectedUnit + 1 :
+		(m_units->Count() > 0 ? 1 : 0));
+	basicFields->Add(templateChoice, 1, wxEXPAND);
+	basicFields->Add(new wxStaticText(basics, wxID_ANY, "Unit name:"), 0, wxALIGN_CENTER_VERTICAL);
+	auto nameField = new wxTextCtrl(basics, wxID_ANY, "New unit");
+	nameField->SetMaxLength(27); // JEDNOTKY.DEF fixed-width unit name
+	basicFields->Add(nameField, 1, wxEXPAND);
+	basicsSizer->Add(basicFields, 0, wxEXPAND|wxALL, 10);
+	basicsSizer->Add(new wxStaticText(basics, wxID_ANY,
+		"After creation, edit all attack, defence, movement, graphics and sound\n"
+		"attributes in the existing Basic / Graphics / Sounds / Actions tabs."),
+		0, wxALL, 10);
+	basics->SetSizer(basicsSizer);
+	pages->AddPage(basics, "1. Definition", true);
+
+	// Page 2: optional first sprite from PNG. More directions/frames can be
+	// imported using the same graphics encoder and its FSU sprite naming.
+	auto graphics = new wxPanel(pages);
+	auto graphicsSizer = new wxBoxSizer(wxVERTICAL);
+	graphicsSizer->Add(new wxStaticText(graphics, wxID_ANY,
+		"Optional: prepare one PNG as a UNITS.FSU sprite.\n"
+		"The original UNITS.PAL colors are used automatically."),
+		0, wxALL, 10);
+	auto graphicFields = new wxFlexGridSizer(2, 8, 10);
+	graphicFields->AddGrowableCol(1, 1);
+	graphicFields->Add(new wxStaticText(graphics, wxID_ANY, "Source PNG:"), 0, wxALIGN_CENTER_VERTICAL);
+	auto pngRow = new wxBoxSizer(wxHORIZONTAL);
+	auto pngField = new wxTextCtrl(graphics, wxID_ANY);
+	auto browse = new wxButton(graphics, wxID_ANY, "Browse...");
+	pngRow->Add(pngField, 1, wxRIGHT|wxEXPAND, 5);
+	pngRow->Add(browse, 0);
+	graphicFields->Add(pngRow, 1, wxEXPAND);
+	graphicFields->Add(new wxStaticText(graphics, wxID_ANY, "FSU sprite code:"), 0, wxALIGN_CENTER_VERTICAL);
+	auto spriteField = new wxTextCtrl(graphics, wxID_ANY, "A00");
+	spriteField->SetMaxLength(3);
+	graphicFields->Add(spriteField, 1, wxEXPAND);
+	graphicsSizer->Add(graphicFields, 0, wxALL|wxEXPAND, 10);
+	graphicsSizer->Add(new wxStaticText(graphics, wxID_ANY,
+		"FSU sprite files use exactly three characters (for example A00).\n"
+		"One PNG is not a complete animated/directional unit: create the other\n"
+		"sprites and assemble UNITS.FSU before choosing the new graphic group.\n"
+		"Neither your PNG nor existing .info files will be overwritten."),
+		0, wxALL, 10);
+	browse->Bind(wxEVT_BUTTON, [&](wxCommandEvent&)
+	{
+		wxFileDialog pick(&dialog, "Select unit sprite PNG", wxEmptyString,
+			wxEmptyString, "PNG images (*.png)|*.png",
+			wxFD_OPEN|wxFD_FILE_MUST_EXIST);
+		if(pick.ShowModal() == wxID_OK)
+		{
+			pngField->SetValue(pick.GetPath());
+			auto stem = std::filesystem::path(pick.GetPath().ToStdWstring()).stem().string();
+			if(stem.size() == 3)
+			{
+				for(auto& ch : stem)
+					ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+				spriteField->SetValue(wxString::FromUTF8(stem));
+			}
+		}
+	});
+	graphics->SetSizer(graphicsSizer);
+	pages->AddPage(graphics, "2. Sprite PNG");
+
+	outer->Add(pages, 1, wxALL|wxEXPAND, 8);
+	auto buttons = new wxStdDialogButtonSizer();
+	auto createButton = new wxButton(&dialog, wxID_OK, "Create unit");
+	buttons->AddButton(createButton);
+	buttons->AddButton(new wxButton(&dialog, wxID_CANCEL, "Cancel"));
+	buttons->Realize();
+	outer->Add(buttons, 0, wxALL|wxALIGN_RIGHT, 10);
+	dialog.SetSizer(outer);
+	dialog.SetMinSize(wxSize(610, 415));
+	dialog.Layout();
+
+	// Validate without closing, so a wrong name/path can be corrected.
+	createButton->Bind(wxEVT_BUTTON, [&](wxCommandEvent&)
+	{
+		wxString unitName = nameField->GetValue();
+		unitName.Trim(true).Trim(false);
+		if(unitName.IsEmpty())
+		{
+			wxMessageBox("Enter a unit name.", "New unit", wxOK|wxICON_EXCLAMATION, &dialog);
+			pages->SetSelection(0);
+			return;
+		}
+		if(!pngField->GetValue().IsEmpty())
+		{
+			auto spriteId = spriteField->GetValue().ToStdString();
+			bool valid = spriteId.length() == 3;
+			for(unsigned char ch : spriteId)
+				valid = valid && ((ch >= 'A' && ch <= 'Z') ||
+					(ch >= '0' && ch <= '9') || ch == '_');
+			if(!valid)
+			{
+				wxMessageBox("FSU sprite code must be exactly three uppercase A-Z, 0-9 or _ characters.",
+					"New unit", wxOK|wxICON_EXCLAMATION, &dialog);
+				pages->SetSelection(1);
+				return;
+			}
+			wxImage testImage;
+			if(!testImage.LoadFile(pngField->GetValue(), wxBITMAP_TYPE_PNG))
+			{
+				wxMessageBox("Cannot read selected PNG.", "New unit",
+					wxOK|wxICON_ERROR, &dialog);
+				pages->SetSelection(1);
+				return;
+			}
+			auto pngPath = std::filesystem::path(pngField->GetValue().ToStdWstring());
+			auto infoPath = pngPath;
+			infoPath.replace_extension(L".info");
+			if(std::filesystem::exists(infoPath))
+			{
+				SpellGresInfo info;
+				if(info.LoadInfo(infoPath) || !info.isUnitsFSU() ||
+					info.img_name != pngPath.filename().string() || info.name != spriteId)
+				{
+					wxMessageBox("An incompatible .info already exists next to the PNG.\n"
+						"Choose another image or edit its metadata in the graphics encoder.",
+						"New unit", wxOK|wxICON_ERROR, &dialog);
+					pages->SetSelection(1);
+					return;
+				}
+			}
+		}
+		dialog.EndModal(wxID_OK);
+	});
+
+	if(dialog.ShowModal() != wxID_OK)
+		return;
+
+	wxString unitName = nameField->GetValue();
+	unitName.Trim(true).Trim(false);
+	std::filesystem::path infoPath;
+	const auto sourcePNG = pngField->GetValue();
+	if(!sourcePNG.IsEmpty())
+	{
+		const auto pngPath = std::filesystem::path(sourcePNG.ToStdWstring());
+		infoPath = pngPath;
+		infoPath.replace_extension(L".info");
+
+		auto unitsPalette = m_spell_data->GetPalette("UNITS.PAL");
+		if(!unitsPalette)
+		{
+			wxMessageBox("UNITS.PAL is not loaded. Sprite preparation was cancelled.",
+				"New unit", wxOK|wxICON_ERROR, this);
+			return;
+		}
+		auto palPath = pngPath.parent_path() / L"spellcross_units.palinfo";
+		if(std::filesystem::exists(palPath))
+		{
+			SpellPalette oldPalette;
+			if(oldPalette.LoadInfo(palPath) || oldPalette.m_pal != unitsPalette->m_pal)
+			{
+				wxMessageBox("The existing spellcross_units.palinfo does not match the loaded UNITS.PAL.\n"
+					"Move it aside or select a different PNG folder. Nothing was overwritten.",
+					"New unit", wxOK|wxICON_ERROR, this);
+				return;
+			}
+		}
+		else if(unitsPalette->SaveInfo(palPath))
+		{
+			wxMessageBox("Could not save UNITS.PAL metadata next to the PNG.",
+				"New unit", wxOK|wxICON_ERROR, this);
+			return;
+		}
+
+		if(!std::filesystem::exists(infoPath))
+		{
+			wxImage image;
+			if(!image.LoadFile(sourcePNG, wxBITMAP_TYPE_PNG))
+				return;
+			SpellGresInfo info;
+			info.path = infoPath;
+			info.info_name = infoPath.filename().string();
+			info.raw_name = spriteField->GetValue().ToStdString();
+			info.raw_img_name = pngPath.filename().string();
+			info.format = SpellGresInfo::Format::FSU;
+			info.pal_name = palPath.filename().string();
+			info.colors_str = "128-223";
+			info.x_size = image.GetWidth();
+			info.y_size = image.GetHeight();
+			info.is_transparent = true;
+			if(info.SaveInfo(infoPath))
+			{
+				wxMessageBox("Could not save the PNG .info metadata. Unit was not created.",
+					"New unit", wxOK|wxICON_ERROR, this);
+				return;
+			}
+		}
+	}
+
+	const int templateIndex = templateChoice->GetSelection() - 1;
+	auto unit = m_units->AddUnit(templateIndex);
+	unit->name = unitName.ToStdWstring();
+
+	// Refresh the virtual list and select the newly created record.
+	wxCommandEvent refresh(wxEVT_COMMAND_LISTBOX_SELECTED, wxID_LBOX_DEFS);
+	refresh.SetEventObject(lboxDEF);
+	refresh.SetInt(lboxDEF->GetSelection());
+	OnSelectDEF(refresh);
+	lboxUnits->SetItemState(-1, 0, wxLIST_STATE_SELECTED);
+	lboxUnits->SetItemState(unit->type_id, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+	lboxUnits->EnsureVisible(unit->type_id);
+	wxCommandEvent unitSelection;
+	OnSelectUnit(unitSelection);
+	lboxUnits->Refresh();
+
+	if(!infoPath.empty())
+	{
+		auto encoder = new FormGResEncoder(GetParent(), m_spell_data);
+		if(encoder->OpenInfoResource(infoPath))
+			encoder->Show();
+		else
+			encoder->Destroy();
+		SetStatusText("New unit added; sprite source prepared. Export sprite and build mod UNITS.FSU to use new graphics.");
+	}
+	else
+		SetStatusText("New unit added. Edit its attributes and use File > Save target DEF file(s).");
+}
+
+
 // units popup menu
 void FormUnitsEdit::OnUnitsPupupOpen(wxMouseEvent& event)
 {
@@ -1523,19 +1793,8 @@ void FormUnitsEdit::OnUnitsPupup(wxCommandEvent& event)
 	}
 	else if(menu_id == PopupActions::ADD_UNIT)
 	{
-		if(!m_units)
-			return;
-		auto unit = m_units->AddUnit();
-		
-				
-		wxCommandEvent evt;
-		evt.SetEventObject(lboxTargetDef);
-		OnSelectDEF(evt);
-
-		lboxUnits->SetItemState(-1,0,wxLIST_STATE_SELECTED);
-		lboxUnits->SetItemState(unit->type_id,wxLIST_STATE_SELECTED,wxLIST_STATE_SELECTED);
-		lboxUnits->EnsureVisible(unit->type_id);
-		lboxUnits->Refresh();
+		wxCommandEvent createEvent;
+		OnNewUnit(createEvent);
 	}
 	else if(menu_id == PopupActions::COPY_TO_TARGET)
 	{
