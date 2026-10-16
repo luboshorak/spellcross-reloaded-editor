@@ -116,6 +116,8 @@ public:
     MainFrame(SpellConfig* config, SpellMap *&map,SpellData *&spelldata,SpellTreeRandomizerRules &tree_rand_rules);
     void StatusStringCallback(std::string info);
     void CreateHUDbuttons();
+    // Open the existing unit placement tool with a newly imported unit selected.
+    bool OpenCustomUnitPlacement(int unit_id);
 
     static int LoadSpellData(wxWindow* parent, SpellConfig &config,SpellData *&spell_data);
 
