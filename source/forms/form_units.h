@@ -235,6 +235,7 @@ class FormUnits : public wxFrame
 		~FormUnits();
 
 		void SetSpellData(SpellData *spelldata);
+		void SelectUnitType(int unit_id);
 		void SetMapUnit(MapUnit* unit=NULL, SpellMap *map=NULL, MapUnitTemplate* unit_template=NULL);
 		bool DoUpdateUnit();
 		MapUnit *DoAddUnit();
