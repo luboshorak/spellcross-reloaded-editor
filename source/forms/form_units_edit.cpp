@@ -2459,6 +2459,21 @@ bool FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 			throw std::runtime_error("Failed registering new FSU resource in editor");
 		m_unit->gra = group;
 		m_unit->gr_base = m_spell_data->units_fsu->GetResource(group.c_str());
+		// Also handle units created before this workflow existed. Once their
+		// primary graphic is custom, secondary reference graphics from the
+		// original template must not suddenly appear during actions.
+		m_unit->grb.clear();
+		m_unit->gr_aux = nullptr;
+		m_unit->anim_atack_light_name.clear();
+		m_unit->anim_atack_armor_name.clear();
+		m_unit->anim_atack_air_name.clear();
+		m_unit->gr_attack_light = nullptr;
+		m_unit->gr_attack_armor = nullptr;
+		m_unit->gr_attack_air = nullptr;
+		m_unit->action_fsu_name.clear();
+		m_unit->gr_action = nullptr;
+		m_unit->die_anim_name.clear();
+		m_unit->gr_die = nullptr;
 
 		wxCommandEvent refresh;
 		OnSelectUnit(refresh);
