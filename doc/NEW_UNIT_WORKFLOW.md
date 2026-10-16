@@ -1,76 +1,106 @@
-# Creating a custom unit (experimental workflow)
+# Custom units: import, build, place and test (experimental)
 
-The **Units DEF editor** (View > Units DEF editor) now includes **New unit...**
-(Ctrl+N, the button under the units list, or right-click on the list).
+The Units DEF editor now combines the existing DEF editor, graphics encoder,
+FSU archive builder and map unit placement tool.
 
-## Create a unit definition
+## Step 1: Create a unit
 
-1. Open your working `JEDNOTKY.DEF` via **File > Open units DEF file(s)**.
-   The editor now preserves the entire selected path (DEF files outside the
-   working directory load correctly).
-2. Choose **New unit...**, enter a unique name and select an existing unit as a
-   template. Cloning carries over combat stats, movement, animation references,
-   graphics references and sounds. An empty definition can also be created,
-   but it must be filled before use.
-3. On **Sprite PNG**, optionally choose a single PNG and set its *three-character
-   sprite code* (A-Z, 0-9 and underscore only, e.g. `A00`).
-4. Confirm. The new unit is selected in the list. Use the existing **Basic**,
-   **Graphics**, **Sounds** and **Special actions** pages to configure it.
-5. Save the working `JEDNOTKY.DEF` to your **mod directory**, not the original
-   game installation. Confirm before overwriting any destination.
+1. Open the editor's **View > Units DEF editor**.
+2. Choose **File > Open units DEF file(s)** and open the game's (or a mod's)
+   `JEDNOTKY.DEF`. Keep a backup; work on a copy.
+3. Choose **New unit...** (Ctrl+N, button or list context menu).
+4. Type a name and preferably select a similar existing unit as template.
+   This copies its movement, combat parameters, sounds, animations and
+   references. The new record gets the next unit ID.
+5. The PNG selection on page 2 is optional. It prepares `.info` metadata
+   from a PNG and opens the existing Graphics Resource Encoder directly.
+   For a complete unit, prepare multiple PNG sprites covering the directions
+   and animations required by your model.
 
-## PNG encoding and palette
+Edit parameters in the existing **Basic**, **Graphics**, **Sounds** and
+**Special actions** pages. A unit name can be up to 27 characters.
 
-If a PNG was selected, the wizard creates two metadata files **beside the PNG**:
+## Step 2: Build unit graphics from PNGs
 
-- `<image-stem>.info` describes the PNG as an `UNITS.FSU` sprite, with its
-  three-character code, dimensions and alpha transparency.
-- `spellcross_units.palinfo` is exported from the original loaded
-  `UNITS.PAL` and makes the graphics encoder quantize to the actual game's
-  units palette (indexes 128–223).
+1. Put the unit's PNG frames in **one folder**. Each file must have a
+   three-character sprite name such as `A00.png`, `A01.png`, `F00.png`.
+   Alternatively, a PNG can be accompanied by an `.info` file whose
+   `name` specifies its three-character sprite code; the New unit wizard
+   can create one of these automatically.
+2. Select the newly created unit and click
+   **Build PNG graphics / UNITS.FSU...**.
+3. Enter a **unique 1–5 character FSU resource group name**, for example
+   `NEW01`. Choose the PNG folder and an **empty mod output folder**.
+4. The editor quantizes all PNGs against the game's original `UNITS.PAL`
+   (indexes 128–223), encodes each sprite with existing
+   `FSU_sprite::SaveSprite`, builds a standalone `NEW_<group>.FSU` and
+   merges that group's compressed sprites into a **copy** of the currently
+   loaded `UNITS.FSU`.
+5. The new resource is added to the running editor without replacing any
+   existing FSU resource; the selected unit's main `gra` reference is
+   changed to the new group. You can see it under the **Graphics** tab.
 
-Existing PNG files and metadata are never overwritten automatically.
-If `<image-stem>.info` exists, it must describe the same PNG and sprite code.
-If `spellcross_units.palinfo` exists, it must match the loaded palette.
+All generated files are written to the chosen mod folder, never to the
+original game archives. Existing output names are rejected instead of
+overwritten. The encoded intermediate sprites are retained under
+`spellcross_fsu_<group>/<group>/`, for inspection.
 
-The **Graphics Resource Encoder** opens the newly prepared resource directly.
-Inspect the encoded preview, transparency and offsets; choose **Save resource**
-and select an export directory to produce the encoded three-character sprite
-file.
+**Sprite naming matters:** one PNG is only a single pose/direction and does
+not magically provide every movement frame and viewing direction. The FSU
+resource parser interprets the naming/order of all provided frames. Complete
+your directional/animation set to match the gameplay behavior of the cloned
+template. The tool does not synthesize unseen camera angles from one image.
 
-**Important limitation:** one PNG produces **one FSU sprite**, not an entire
-unit. Complete unit graphics require the correct directions, poses and frames.
-The encoded three-character sprite files need to be assembled into a named FSU
-resource (resource folder name at most **five characters**) and packed into
-`UNITS.FSU` with the FSU tools. The new `JEDNOTKY.DEF` must then point to that
-resource name, and that resource must be present in the loaded game assets.
+## Step 3: Place and preview the unit on a map
 
-The wizard deliberately **does not assign an unbuilt FSU graphic** to the
-definition. A cloned unit retains the template's graphics and can be configured
-while the new assets are being prepared.
+1. Open a tactical map in the main map editor.
+2. In the Units DEF editor, select the new unit and click
+   **Place / test on map...**.
+3. The editor serializes that unit's DEF record, resolves its graphics,
+   icons, sounds and animation links against the live Spellcross data, and
+   appends it to the live catalog **without moving/replacing existing
+   unit records** that may already be referenced from a map.
+4. The existing **Add unit** window opens with your new unit selected.
+   Position and place it as usual; inspect its sprites and parameters.
 
-## Map placement and game testing
+For safety this imports **new, sequential unit IDs only**: the selected
+record's ID must equal the next available ID in the live catalog.
+Overwriting an in-use unit ID could corrupt pointers held by map units, so
+the editor refuses it. To re-test after changing an already registered
+record, reload the editor's data and repeat the procedure.
 
-The DEF editor manipulates **external files**, not the unit catalog already
-loaded into the running map editor. Saving a DEF does not hot-reload units.
+If the unit refers to an FSU group not loaded (or to missing icon/animation/
+sound resources), registration fails with a descriptive error instead of
+placing a broken unit.
 
-To test a complete unit: deploy both the modded `JEDNOTKY.DEF` in the
-appropriate game archive and its compatible `UNITS.FSU` (using the existing
-mod/build workflow), **reload the editor's game configuration/assets**, open a
-map, then use the existing unit placement tool to select and place the new unit.
-The game can load custom missions through **File > Load custom map...**, as
-described in the main README.
+## Step 4: Export a mod for the Reloaded game
 
-## Scope of this change
+1. Click **Export mod COMMON.FS...** in the Units DEF editor.
+2. Choose the **same mod output folder** as for your `UNITS.FSU`.
+   The editor copies the loaded `COMMON.FS`, replaces `JEDNOTKY.DEF`
+   with the edited data, and writes a **new** `COMMON.FS` there.
+3. The folder now contains the updated `COMMON.FS` and (when you built
+   new graphics) a matching `UNITS.FSU`. Configure Reloaded to load
+   these mod assets through the supported mod/data-path workflow, then
+   open the custom mission through **File > Load custom map...**.
+4. Keep any other mission assets (e.g. referenced `.DTA`) accessible.
 
-**Implemented:** template-based creation, prominent UI actions, input
-validation, automatic `.info` creation, palette generation, direct entry to
-the existing graphics encoder, full-path DEF loading and save-path tracking.
+The export preserves the commercial game's original files and refuses to
+overwrite an existing `COMMON.FS`. The editor and game each need to load
+the **same mod archives** when evaluating new units.
 
-**Not yet implemented:** sprite-sheet slicing, automatic generation of
-directional/animated FSU sets, automatic archive assembly/installation,
-in-session unit hot-reload, and one-click launch of a playable test map.
+## Limitations and test status
 
-These are real technical constraints: a standalone PNG cannot be represented
-as a fully animated Spellcross unit, and a DEF change alone does not register
-new graphics or change the currently loaded map catalog.
+- This implementation uses **PNG folders containing already rendered
+  angles/frames**; it does not create novel angles or animation frames from a
+  single PNG or slice sprite sheets automatically.
+- It assembles FSU resources, links live graphics, registers live DEF records,
+  opens map placement and exports standalone mod archives; it does not
+  automatically launch the Reloaded game executable or install files into
+  its configuration.
+- Working `JEDNOTKY.DEF` edits are separate from the live catalog until
+  **Place / test on map** is clicked; registration is append-only to avoid
+  invalidating pointers on existing maps.
+- **Windows C++/wxWidgets build and real asset-based integration tests have
+  not been run in this environment.** Check the compiled editor against a
+  backed-up Spellcross installation before deploying the mod.
