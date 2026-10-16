@@ -1842,6 +1842,13 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	grid->Add(new wxStaticText(&options,wxID_ANY,"FSU graphics group:"),0,wxALIGN_CENTER_VERTICAL);
 	auto groupField=new wxTextCtrl(&options,wxID_ANY,"U001");
 	grid->Add(groupField,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Map unit scale:"),0,wxALIGN_CENTER_VERTICAL);
+	wxArrayString unitModes;
+	unitModes.Add("Air - may extend beyond one tile");
+	unitModes.Add("Ground - keep inside one 80x48 tile");
+	auto unitMode=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,unitModes);
+	unitMode->SetSelection(m_unit->isAir()?0:1);
+	grid->Add(unitMode,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Max object size (pixels):"),0,wxALIGN_CENTER_VERTICAL);
 	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,32,160,96);
@@ -1853,6 +1860,14 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	auto rotationField=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,modes);
 	rotationField->SetSelection(0);
 	grid->Add(rotationField,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Source image points toward:"),0,wxALIGN_CENTER_VERTICAL);
+	wxArrayString sourceHeadings;
+	for(int k=0;k<8;++k)
+		sourceHeadings.Add(wxString::Format("Template direction %d",k+1));
+	auto sourceHeadingField=new wxChoice(&options,wxID_ANY,wxDefaultPosition,
+		wxDefaultSize,sourceHeadings);
+	sourceHeadingField->SetSelection(0);
+	grid->Add(sourceHeadingField,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Background tolerance:"),0,wxALIGN_CENTER_VERTICAL);
 	auto toleranceField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,0,100,32);
@@ -1894,7 +1909,8 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			throw std::runtime_error("Cannot load the selected source PNG.");
 		frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
 			backgroundField->GetValue(),toleranceField->GetValue(),
-			rotationField->GetSelection()==0);
+			rotationField->GetSelection()==0,unitMode->GetSelection()==1,
+			m_unit->gr_base,sourceHeadingField->GetSelection());
 	}
 	catch(const std::exception& error)
 	{
@@ -1978,8 +1994,11 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 				info.colors_str="128-223";
 				info.x_size=frames[i].GetWidth();
 				info.y_size=frames[i].GetHeight();
-				info.x_offset=-frames[i].GetWidth()/2;
-				info.y_offset=-frames[i].GetHeight()/2;
+				// Spellcross FSU offsets are relative to (x=40,y=128).
+				// Ground sprites end at the tile base; air sprites stay centered.
+				info.x_offset=40-frames[i].GetWidth()/2;
+				info.y_offset=unitMode->GetSelection()==1
+					?128-frames[i].GetHeight():128-frames[i].GetHeight()/2;
 				info.resampling=wxIMAGE_QUALITY_NEAREST;
 				info.is_transparent=true;
 				if(info.SaveInfo(infoPath))
