@@ -101,6 +101,8 @@ public:
 	} special;
 	// units graphics (FSU)
 	FSUarchive *units_fsu;
+	// Exact archive selected by Reload; used to build safe mod copies.
+	std::filesystem::path units_fsu_source_path;
 	// units
 	SpellUnits* units;
 
