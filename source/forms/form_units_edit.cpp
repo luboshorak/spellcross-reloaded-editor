@@ -2018,6 +2018,117 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	}
 }
 
+// Use the finished game sprite to generate a NEW 60-pixel-wide tactical icon.
+// The original template's icon is not copied. Icons are stored as I_*.LZ
+// resources inside COMMON.FS, in the same 128-223 UNITS.PAL color range.
+bool FormUnitsEdit::CreateUnitIcon(const wxImage& sprite,const std::string& group)
+{
+	if(!m_unit || !m_spell_data)
+		return false;
+	auto* pal=m_spell_data->GetPalette("UNITS.PAL");
+	if(!pal || !sprite.IsOk() || !sprite.HasAlpha())
+		return false;
+	const std::string iconStem="I_"+group;
+	const std::string iconFile=iconStem+".LZ";
+	if(iconStem.size()>8 || m_spell_data->gres.GetResource(iconStem.c_str()))
+	{
+		wxMessageBox("Cannot assign new unit icon: name already exists or is too long: "
+			+wxString::FromUTF8(iconStem.c_str()),"Custom unit icon",wxOK|wxICON_ERROR,this);
+		return false;
+	}
+
+	// Original icon resources have fixed 60-pixel widths. Match the height of
+	// the original icon only, not its image content.
+	int iconW=60, iconH=60;
+	auto* oldIcon=m_spell_data->gres.GetResource(m_unit->icon);
+	if(oldIcon && oldIcon->x_size==60 && oldIcon->y_size>=24 && oldIcon->y_size<=128)
+		iconH=oldIcon->y_size;
+
+	const auto* alpha=sprite.GetAlpha();
+	int l=sprite.GetWidth(), t=sprite.GetHeight(), r=-1, b=-1;
+	for(int y=0;y<sprite.GetHeight();++y)
+		for(int x=0;x<sprite.GetWidth();++x)
+			if(alpha[static_cast<size_t>(y)*sprite.GetWidth()+x]>=24)
+			{
+				l=std::min(l,x);
+				t=std::min(t,y);
+				r=std::max(r,x);
+				b=std::max(b,y);
+			}
+	if(r<l || b<t)
+		return false;
+	auto img=sprite.GetSubImage(wxRect(l,t,r-l+1,b-t+1));
+	const double scale=std::min(static_cast<double>(iconW-8)/img.GetWidth(),
+		static_cast<double>(iconH-8)/img.GetHeight());
+	const int scaledW=std::max(1,static_cast<int>(std::lround(img.GetWidth()*scale)));
+	const int scaledH=std::max(1,static_cast<int>(std::lround(img.GetHeight()*scale)));
+	img.Rescale(scaledW,scaledH,wxIMAGE_QUALITY_BICUBIC);
+	
+	// Paint a solid new background, using palette color #128. Never copy
+	// pixels from the original unit's icon; only its frame dimensions.
+	auto rgb=pal->GetPal();
+	wxImage output(iconW,iconH);
+	auto* dest=output.GetData();
+	for(int p=0;p<iconW*iconH;++p)
+		for(int ch=0;ch<3;++ch)
+			dest[3*p+ch]=rgb[128][ch];
+	const int x0=(iconW-scaledW)/2;
+	const int y0=(iconH-scaledH)/2;
+	for(int y=0;y<scaledH;++y)
+		for(int x=0;x<scaledW;++x)
+		{
+			const size_t sourcePos=static_cast<size_t>(y)*scaledW+x;
+			const int coverage=img.HasAlpha()?img.GetAlpha()[sourcePos]:255;
+			if(coverage<24)
+				continue;
+			const size_t targetPos=static_cast<size_t>(y+y0)*iconW+(x+x0);
+			for(int ch=0;ch<3;++ch)
+				dest[3*targetPos+ch]=static_cast<uint8_t>(
+					(img.GetData()[3*sourcePos+ch]*coverage +
+					rgb[128][ch]*(255-coverage))/255);
+		}
+
+	pal->ClearUserRange();
+	pal->AddUserRangeStr("128-223");
+	SpellGraphicItem icon;
+	std::vector<ImgQuantize::Pixel> buffer;
+	auto bitmap=wxBitmap(output);
+	if(icon.Encode(bitmap,buffer,false,iconStem,pal,1.0,0.0,0.0,
+		iconW,iconH,wxIMAGE_QUALITY_NEAREST,0,128))
+	{
+		wxMessageBox("Cannot quantize custom unit icon.","Custom unit icon",wxOK|wxICON_ERROR,this);
+		return false;
+	}
+	std::vector<uint8_t> compressed;
+	LZspell compressor(icon.pixels.data(),static_cast<int>(icon.pixels.size()),compressed);
+	if(compressed.empty())
+	{
+		wxMessageBox("Cannot compress custom unit icon.","Custom unit icon",wxOK|wxICON_ERROR,this);
+		return false;
+	}
+	// Verify the LZ encoding before exposing a new asset.
+	LZWexpand decoder(128000);
+	auto decoded=decoder.Decode(compressed);
+	if(decoded!=icon.pixels)
+	{
+		wxMessageBox("Custom icon LZ verification failed.","Custom unit icon",wxOK|wxICON_ERROR,this);
+		return false;
+	}
+	if(m_spell_data->gres.AddRaw(icon.pixels.data(),static_cast<int>(icon.pixels.size()),
+		iconW,iconH,iconFile.c_str(),pal,true))
+	{
+		wxMessageBox("Cannot register new icon in running editor.","Custom unit icon",wxOK|wxICON_ERROR,this);
+		return false;
+	}
+	// In-memory previews, JEDNOTKY.DEF and later COMMON.FS export now agree.
+	m_custom_icon_lz[iconFile]=std::move(compressed);
+	m_unit->icon=iconStem;
+	m_unit->icon_glyph=m_spell_data->gres.GetResource(iconStem.c_str());
+	canvasIcon->Refresh();
+	SetStatusText("Custom icon "+iconStem+" created. Export COMMON.FS to include it in the mod.");
+	return true;
+}
+
 // Import all PNG frames in a folder as a fresh FSU resource, merge that resource
 // into a copy of the currently loaded UNITS.FSU, then link it in-memory without
 // replacing existing resources referenced by units already placed on maps.
