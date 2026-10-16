@@ -520,6 +520,7 @@ int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd
 		last_error = err_msg;
 		return(1);
 	}
+	units_fsu_source_path = arch_path;
 	try{
 		units_fsu = new FSUarchive(arch_path, FSUarchive::Options::NONE, status_item);
 	}catch(const runtime_error& error) {
