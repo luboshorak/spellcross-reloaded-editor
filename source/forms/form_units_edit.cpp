@@ -1590,17 +1590,17 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 	}
 
 	wxTextEntryDialog nameDialog(this,
-		"Enter a unique FSU group name (1-5 uppercase letters, digits or _):",
+		"Enter a unique FSU group name (1-5 uppercase letters or digits):",
 		"New UNITS.FSU graphics group","U001");
 	if(nameDialog.ShowModal() != wxID_OK)
 		return;
 	std::string group = nameDialog.GetValue().ToStdString();
 	bool valid = !group.empty() && group.size() <= 5;
 	for(unsigned char ch : group)
-		valid = valid && ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_');
+		valid = valid && ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'));
 	if(!valid)
 	{
-		wxMessageBox("Group name must be 1-5 characters: A-Z, 0-9 or _.",
+		wxMessageBox("Group name must be 1-5 characters: A-Z or 0-9.",
 			"Build unit graphics",wxOK|wxICON_EXCLAMATION,this);
 		return;
 	}
