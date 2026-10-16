@@ -2491,37 +2491,74 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		if(pal->SaveInfo(spritesDir/"spellcross_units.palinfo"))
 			throw std::runtime_error("Could not export palette metadata.");
 
-		// Each still image is also supplied as a one-frame movement pose.
-		// Axx precedes Fxx in the FSU parser, so the group receives both
-		// an 8-azimuth animation (1 frame) and an 8-azimuth static set.
-		for(size_t i=0;i<frames.size();++i)
-			for(char prefix : {'A','F'})
-			{
-				const auto code=(wxString::Format("%c%02d",prefix,static_cast<int>(i))).ToStdString();
-				auto pngPath=spritesDir/(code+".png");
-				auto infoPath=spritesDir/(code+".info");
-				if(!frames[i].SaveFile(wxString(pngPath.wstring()),wxBITMAP_TYPE_PNG))
-					throw std::runtime_error("Cannot save generated PNG "+code);
-				SpellGresInfo info;
-				info.path=infoPath;
-				info.info_name=infoPath.filename().string();
-				info.raw_name=code;
-				info.raw_img_name=pngPath.filename().string();
-				info.format=SpellGresInfo::Format::FSU;
-				info.pal_name="spellcross_units.palinfo";
-				info.colors_str="128-223";
-				info.x_size=frames[i].GetWidth();
-				info.y_size=frames[i].GetHeight();
-				// Spellcross FSU sprite (0,128) is the ground/map anchor.
-				// An empty bottom border must NOT lift ground units off the tile.
-				info.x_offset=40-frames[i].GetWidth()/2;
-				info.y_offset=unitMode->GetSelection()==1
-					?GroundFootOffset(frames[i]):128-frames[i].GetHeight()/2;
-				info.resampling=wxIMAGE_QUALITY_NEAREST;
-				info.is_transparent=true;
-				if(info.SaveInfo(infoPath))
-					throw std::runtime_error("Cannot save generated sprite metadata "+code);
-			}
+		const bool ground=unitMode->GetSelection()==1;
+		const bool walker=ground && groundStyle->GetSelection()==1;
+		const FSU_resource* templateGraphics=m_unit->gr_base;
+		auto saveSprite=[&](const wxImage& image, const std::string& code,
+			int slope,int direction)
+		{
+			const auto pngPath=spritesDir/(code+".png");
+			const auto infoPath=spritesDir/(code+".info");
+			if(!image.SaveFile(wxString(pngPath.wstring()),wxBITMAP_TYPE_PNG))
+				throw std::runtime_error("Cannot save generated PNG "+code);
+			SpellGresInfo info;
+			info.path=infoPath;
+			info.info_name=infoPath.filename().string();
+			info.raw_name=code;
+			info.raw_img_name=pngPath.filename().string();
+			info.format=SpellGresInfo::Format::FSU;
+			info.pal_name="spellcross_units.palinfo";
+			info.colors_str="128-223";
+			info.x_size=image.GetWidth();
+			info.y_size=image.GetHeight();
+			info.x_offset=40-image.GetWidth()/2;
+			info.y_offset=ground
+				?GroundFootOffset(image,templateGraphics,slope,direction,walker,
+					contactOffset->GetValue())
+				:128-image.GetHeight()/2;
+			info.resampling=wxIMAGE_QUALITY_NEAREST;
+			info.is_transparent=true;
+			if(info.SaveInfo(infoPath))
+				throw std::runtime_error("Cannot save sprite metadata "+code);
+		};
+
+		if(!ground)
+		{
+			// Preserve the working aircraft layout (8× A/F images).
+			for(size_t i=0;i<frames.size();++i)
+				for(char prefix:{'A','F'})
+					saveSprite(frames[i],
+						(wxString::Format("%c%02d",prefix,static_cast<int>(i))).ToStdString(),
+						0,static_cast<int>(i)*2);
+		}
+		else if(!walker)
+		{
+			// Native tracked/wheeled vehicle layout: 13 terrain slopes A..M,
+			// 16 camera azimuths each = 208 static FSU records. Names 000..C0F.
+			for(int slope=0;slope<13;++slope)
+				for(int direction=0;direction<16;++direction)
+				{
+					const auto name=wxString::Format("%X%02X",slope,direction).ToStdString();
+					const auto image=AdaptGroundFrameToSlope(frames[direction],slope);
+					saveSprite(image,name,slope,direction);
+				}
+		}
+		else
+		{
+			// Infantry/creatures: 10 walking poses×8 headings followed by
+			// 16 standing headings = 96 native FSU records.
+			// Static meshes initially reuse the standing pose; genuine animated
+			// models can provide distinct movement poses in a later extension.
+			for(int pose=0;pose<10;++pose)
+				for(int direction=0;direction<8;++direction)
+				{
+					const auto code=wxString::Format("0%X%X",pose,direction*2).ToStdString();
+					saveSprite(frames[direction*2],code,0,direction*2);
+				}
+			for(int direction=0;direction<16;++direction)
+				saveSprite(frames[direction],
+					wxString::Format("F%02X",direction).ToStdString(),0,direction);
+		}
 
 		// The Air/Ground selection is game data, not merely the sprite size.
 		// When a new unit was cloned from an aircraft, it otherwise kept the
@@ -2531,12 +2568,22 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			if(unitMode->GetSelection()==1)
 			{
 				const int kind=m_unit->utype & SpellUnitRec::UTYPE_TYPE_MASK;
-				if(kind==SpellUnitRec::UTYPE_TYPE_AIR)
-					m_unit->utype=(m_unit->utype & ~SpellUnitRec::UTYPE_TYPE_MASK)
-						| SpellUnitRec::UTYPE_TYPE_ARMORED;
-				// A full 3D render already includes the entire vehicle body.
-				// The converter deliberately does not produce a separate turret
-				// graphics resource, so don't inherit a phantom turret flag.
+				if(walker)
+				{
+					if(kind==SpellUnitRec::UTYPE_TYPE_AIR ||
+						kind==SpellUnitRec::UTYPE_TYPE_ARMORED)
+						m_unit->utype=(m_unit->utype & ~SpellUnitRec::UTYPE_TYPE_MASK)
+							| SpellUnitRec::UTYPE_TYPE_LIGHT;
+					m_unit->utype |= SpellUnitRec::UTYPE_WALK;
+				}
+				else
+				{
+					if(kind==SpellUnitRec::UTYPE_TYPE_AIR)
+						m_unit->utype=(m_unit->utype & ~SpellUnitRec::UTYPE_TYPE_MASK)
+							| SpellUnitRec::UTYPE_TYPE_ARMORED;
+					m_unit->utype &= ~SpellUnitRec::UTYPE_WALK;
+				}
+				// The 3D model includes the turret/body as a single asset.
 				m_unit->utype &= ~(SpellUnitRec::UTYPE_FLY | SpellUnitRec::UTYPE_TURRET);
 				// Synchronize the Basic / movement properties with the updated
 				// ground class before the unit is registered for map placement.
