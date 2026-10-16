@@ -1657,19 +1657,23 @@ static GroundSpriteSize GetGroundSpriteSize(const FSU_resource* reference,
 				if(!az.empty())
 					measure(az[0]);
 	}
-	// Respect the original sprite's *actual* occupied dimensions. The old
-	// 56..78px horizontal / 38..74px vertical clamps silently miniaturized
-	// almost every imported vehicle, even with Max object size set to 160.
+	// The reference dimensions are the unscaled footprint at 100%.
+	// "Max object size" limits that BASELINE; the user-visible percentage
+	// must then multiply the baseline, not get silently clipped back to 80.
+	// Original FSU row offsets are SIGNED 16-bit when decoded (LoadResource),
+	// so sprites may extend left of the tile's x=40 origin. SaveSprite stores
+	// that signed offset as an identical 16-bit two's-complement bit pattern.
 	const int baseWidth=refWidth>0?refWidth:(walker?34:72);
 	const int baseHeight=refHeight>0?refHeight:56;
+	const double fit=std::min({1.0,
+		static_cast<double>(sizeLimit)/baseWidth,
+		static_cast<double>(sizeLimit)/baseHeight});
 	const double scale=std::clamp(scalePercent,50,200)/100.0;
-	// FSU line offsets are unsigned and referenced to map X=40; a centered
-	// sprite wider than 80px would wrap to a huge positive offset. Keep the
-	// occupied WIDTH in one map cell, but do not restrict upright HEIGHT to 48.
-	const int width=std::clamp(static_cast<int>(std::lround(baseWidth*scale)),
-		1,std::min(80,sizeLimit));
-	const int height=std::clamp(static_cast<int>(std::lround(baseHeight*scale)),
-		1,sizeLimit);
+	// Avoid excessive FSU sprite dimensions and huge palette archives.
+	// The physical model may overlap neighboring tiles, as existing large
+	// vehicle sprites do; never claim a tile-width clamp in the UI.
+	const int width=std::clamp(static_cast<int>(std::lround(baseWidth*fit*scale)),1,320);
+	const int height=std::clamp(static_cast<int>(std::lround(baseHeight*fit*scale)),1,320);
 	return {width,height};
 }
 
@@ -1883,15 +1887,17 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 	// Ground sprites must fit the map cell horizontally, but upright figures
 	// and tanks can extend ABOVE the cell; use the cloned unit's dimensions.
 	const auto dims=GetGroundSpriteSize(reference,groundWalker,targetSize,groundScalePercent);
-	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasW=groundUnit?std::max(80,dims.width+12)
+		:static_cast<int>(std::ceil(targetSize*1.5));
 	const int canvasH=groundUnit?std::max(96,dims.height+12)
 		:static_cast<int>(std::ceil(targetSize*1.5));
 	// Ground controls must not shrink the artwork back to 56px after scaling.
 	const int imageMaxW=groundUnit?dims.width:targetSize;
 	const int imageMaxH=groundUnit?dims.height:targetSize;
-	const double scale=std::min({1.0,
+	const double scale=std::min({
 		static_cast<double>(imageMaxW)/image.GetWidth(),
-		static_cast<double>(imageMaxH)/image.GetHeight()});
+		static_cast<double>(imageMaxH)/image.GetHeight(),
+		groundUnit?2.0:1.0});
 	const int newWidth=std::max(1,static_cast<int>(std::lround(image.GetWidth()*scale)));
 	const int newHeight=std::max(1,static_cast<int>(std::lround(image.GetHeight()*scale)));
 	if(newWidth!=image.GetWidth() || newHeight!=image.GetHeight())
@@ -2147,7 +2153,8 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 		static_cast<double>(maxH)/cropH,1.0});
 	const int outW=std::max(1,static_cast<int>(std::round(cropW*scale)));
 	const int outH=std::max(1,static_cast<int>(std::round(cropH*scale)));
-	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasW=groundUnit?std::max(80,groundDimensions.width+12)
+		:static_cast<int>(std::ceil(targetSize*1.5));
 	const int canvasH=groundUnit?std::max(96,groundDimensions.height+8)
 		:static_cast<int>(std::ceil(targetSize*1.5));
 	std::vector<wxImage> result;
@@ -2312,7 +2319,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Map unit scale:"),0,wxALIGN_CENTER_VERTICAL);
 	wxArrayString unitModes;
 	unitModes.Add("Air - may extend beyond one tile");
-	unitModes.Add("Ground - one map tile footprint (upright models can be taller)");
+	unitModes.Add("Ground - centered on tile (large sprites may overhang)");
 	auto unitMode=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,unitModes);
 	unitMode->SetSelection(m_unit->isAir()?0:1);
 	grid->Add(unitMode,1,wxEXPAND);
@@ -2324,7 +2331,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	groundStyle->SetSelection(m_unit->isWalk()?1:0);
 	groundStyle->Enable(unitMode->GetSelection()==1);
 	grid->Add(groundStyle,1,wxEXPAND);
-	grid->Add(new wxStaticText(&options,wxID_ANY,"Max object size (pixels):"),0,wxALIGN_CENTER_VERTICAL);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Reference size limit at 100% (px):"),0,wxALIGN_CENTER_VERTICAL);
 	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,32,160,m_unit->isAir()?96:144);
 	grid->Add(sizeField,1,wxEXPAND);
