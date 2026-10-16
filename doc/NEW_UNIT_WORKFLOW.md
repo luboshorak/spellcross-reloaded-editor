@@ -1,118 +1,71 @@
 # Create a new custom Spellcross Reloaded unit
 
-This experimental editor branch adds direct high-resolution artwork conversion,
-DEF editing, FSU archive building, map placement and mod export.
+**Recommended workflow: import a 3D model.** The editor supports `.glb` and
+`.gltf` (preferred), with optional `.fbx` import through Blender. Unlike
+single-image PNG rotation, this produces **eight geometrically real camera
+views** of the source model. Install Blender 4.x/5.x for the renderer; the
+first import prompts you to locate `blender.exe`, or set the environment
+variable `SPELLCROSS_BLENDER_EXE` to its full path.
 
-## Start with a unit and an ordinary image
+The editor launches Blender headlessly with its bundled
+`render_unit_model.py` script. This file is copied beside the editor EXE
+during the Windows build; if copying the editor to another folder, copy the
+script with it. No 3D runtime, Python package, or 3D rendering library is
+embedded into the editor.
 
-1. Open the editor and load the original game archives.
-2. Open **View > Units DEF editor** and **File > Open units DEF file(s)**.
-   Load a **working copy** of your `JEDNOTKY.DEF`, not a retail original.
-3. Click **New unit...** and choose a compatible template unit. Set the new
-   unit's name. On **2. Source artwork**, pick any PNG artwork, including a
-   high-resolution illustration or top-down photo (e.g. 1800×1500).
-4. Click **Create unit**. The source image goes straight to
-   **Create game sprites from artwork...**. You can also open this converter
-   at any time by selecting a unit in the DEF list and clicking that button.
-5. In the converter, choose a **unique 1–5 character** graphics name
-   (A–Z, 0–9), select a game-scale object size (default **96 pixels**) and:
-   - **8 rotated views** for a plane, top-down vehicle or object represented
-     from above; the image is rotated by 45 degrees per direction.
-   - **One fixed view** for perspective artwork where turning the flat image
-     would look incorrect.
-   - **Remove plain background** for pictures with a uniform border color.
-     Adjust tolerance for near-white/colored backgrounds. Transparent PNG
-     alpha is preserved.
-6. Check the preview. If satisfied, click **Build game graphics** and choose
-   a writable mod export folder.
+## Model-to-sprite pipeline
 
-The converter flood-removes a uniform border background, crops around the
-visible subject, and scales the sprite. Its **Map unit scale** setting is
-explicit: **Air** may extend over neighboring tiles; **Ground** is
-limited to one Spellcross tile's 80 × 48 pixel footprint. Generated
-sprite offsets use Spellcross's native (x=40, y=128) FSU anchor rather
-than an arbitrary centered source-image origin.
+1. Open the editor and load the game archives.
+2. Open **View > Units DEF editor**, load your working `JEDNOTKY.DEF`, and
+   select **New unit...**, or select an existing custom unit and click
+   **Create game sprites from artwork...**.
+3. Choose a `.glb`, `.gltf` or `.fbx` model. For `.gltf`, keep external
+   textures and `.bin` buffers in their original relative locations.
+4. Pick a unique FSU graphics group (1–5 uppercase letters/digits).
+   Choose **Air** for aircraft that may extend beyond one map tile,
+   **Ground** to constrain the resulting sprites to one 80×48 game tile.
+5. Set **3D camera elevation**, initially 65° for aircraft or 35° for
+   ground units. Select the model's forward direction with **Source image
+   points toward**. The default assumes forward is negative Y in the
+   imported scene; each subsequent camera direction steps by 45 degrees.
+   Set **Facing directions** to *8 real 3D camera viewpoints*.
+6. Blender renders transparent 512×512 PNGs with consistent orthographic
+   magnification. The editor computes a **shared crop/scale across all
+   angles**, produces 8 game-scale images, and previews each angle.
+   Neither model nor textures are modified.
+7. Select **Build game graphics**, choose a fresh output folder, and the
+   editor encodes the directions as `A00–A07` and `F00–F07` using the
+   original `UNITS.PAL` and merges them into a modded `UNITS.FSU`.
+8. The editor automatically generates a dedicated `I_<group>.LZ` unit
+   icon for `COMMON.FS`, plus separate `N<group>.LZ` info artwork and a
+   192-color `N<group>.PAL` for `INFO.FS`. These no longer come from
+   the template.
+9. Use **Place / test on map...** to preview and place the unit; then
+   **Export mod COMMON.FS...** to write the updated unit definitions, icon
+   and INFO resources into mod archive copies.
 
-For multi-direction units, the converter uses the **currently cloned
-unit's real FSU direction silhouettes and offsets** to adjust the
-direction-specific width, height and attachment position. The **Source
-image points toward** selector aligns the supplied picture with the
-template's first/eighth azimuth order. These reference-guided affine
-views reproduce more of the original directional behavior than simple
-uniform 2D rotation, but cannot invent surfaces hidden in one photograph. It writes `A00...A07` as one-frame movement sprites and
-`F00...F07` as static direction sprites (for one-view mode only `A00` and
-`F00`). The game cannot infer unseen details of an aircraft or vehicle:
-this is **2D rotation**, not actual 3D camera-view synthesis.
+The renderer uses actual Blender camera rotation and fixed camera scale.
+It does not use one PNG rotated eight times. If the model includes animations,
+the current version renders a single chosen frame for all headings;
+walking/firing/dying sequences are not automatically imported yet.
+Material support is subject to Blender's glTF/FBX importers.
 
-It then uses the existing graphics encoder and **UNITS.PAL indices 128–223**
-to quantize the new images, produces a named FSU resource and merges it with
-a copy of the loaded `UNITS.FSU`. The new group is linked to your unit in
-the currently running editor; the original commercial archives are unchanged.
+## Legacy PNG import (optional)
 
-The unit also gets its **own UI resources**, not the template's image:
-- a new `I_<group>.LZ` tactical-unit icon (60-pixel-wide, indexed with
-  `UNITS.PAL`, immediately previewable in the editor);
-- a new `N<group>.LZ` info/portrait image with a separate
-  `N<group>.PAL` 192-color palette inside the exported `INFO.FS`.
+The old transparent-background/crop/rotation importer is still available
+through the PNG file filter. Its eight directions remain approximate
+2D transformations, so it is not recommended for new directional units.
+Ground units use the same one-tile limit and Spellcross-native FSU anchors.
+The separate **Build PNG graphics / UNITS.FSU...** button still accepts
+artist-prepared PNG sprite folders.
 
-The original icon and INFO picture references are cleared when a new
-unit is cloned. You must either generate these resources or explicitly
-provide replacements before using the unit in gameplay.
+## Safety and current verification
 
-Export results include:
-- `spellcross_source_<group>/` — generated small PNGs and their .info files
-- `spellcross_fsu_<group>/<group>/` — encoded 3-character FSU sprites
-- `NEW_<group>.FSU` — standalone new resource for inspection
-- `UNITS.FSU` — merged mod archive
-- `COMMON.FS` — later exported unit definitions and custom icon(s)
-- `INFO.FS` — later exported custom unit portrait(s) and palettes
+Always work against a separate editor/game test installation. Mod builds
+create `UNITS.FSU`, `COMMON.FS`, and `INFO.FS` as copies and never modify
+the original game archives. Select an empty export folder rather than
+overwriting previous exports.
 
-The editor refuses to overwrite existing generated archives and metadata.
-
-## Existing artist-prepared direction frames
-
-**Build PNG graphics / UNITS.FSU...** remains available for artists who
-already have a complete set of individual `A00.png`, `F00.png`, etc.
-and matching optional `.info` files. Choose a new group name, the input
-folder and an empty output folder. All sprites share the original
-`UNITS.PAL`. You can inspect individual PNGs and metadata in the
-**Graphics Resource Encoder**. It now scales large source images to fit its
-preview instead of leaving the panel blank.
-
-## Place and test the unit
-
-1. Keep a tactical map loaded in the main map editor.
-2. In the Units DEF editor select the new unit and click
-   **Place / test on map...**.
-3. The editor serializes new DEF records, resolves graphics, icon, sounds and
-   metadata against the live game data and appends new IDs without moving or
-   overwriting existing map unit records. Several pending new IDs are
-   registered in order.
-4. The normal **Add unit** tool opens with your new unit selected. Place it
-   and check orientation, size, rendering and stats.
-5. To export the definition to Reloaded, click **Export mod COMMON.FS...**
-   and choose the folder containing the generated `UNITS.FSU`. The export
-   replaces `JEDNOTKY.DEF` inside a **copy** of the original `COMMON.FS`,
-   adds custom `I_*.LZ` unit icons, and creates a corresponding mod copy
-   of `INFO.FS` containing new unit portraits and palettes. The
-   original archives are never overwritten.
-
-To test in the Reloaded game executable, configure your game's mod/data
-path to use this mod folder and load a custom tactical mission. The editor
-does not yet automatically install the mod or launch the game process.
-
-## Important limits
-
-- Removing a complex photographic background is **not** AI segmentation.
-  Plain/near-plain edge-connected backgrounds are supported. For a complex
-  environment, provide a transparent PNG of the aircraft/object instead.
-- Reference-guided directional views use affine projection of an existing
-  unit's FSU dimensions and anchor points. This **is not** genuine 3D
-  camera rotation; perspective sprites still benefit from manually drawn
-  views. One photo also cannot create actual walking/firing/dying motion.
-  Generated movement frames are one-frame poses per heading.
-- Editor preview registration is **append-only**: to change a unit already
-  registered in memory, reload game data with the updated mod and start again.
-- **Build/runtime status:** the new converter and pipeline are not yet
-  verified by a Windows C++ build or a real game-data integration test.
-  Test only in a separate editor/game installation.
+**Status:** This GLB/glTF/FBX implementation is experimental and has not yet
+passed a Windows compilation and real Blender/game-data runtime test.
+The associated PR is draft and has not been merged into main.
