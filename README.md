@@ -85,6 +85,6 @@ The editor code is available under the [MIT License](./LICENSE), with original a
 
 ## Unit definitions editor
 
-Open **View → Units DEF editor** to edit one or more `JEDNOTKY.DEF` files for mods. You can copy unit definitions between files and preview their graphics and sounds. This tool edits separately opened files; it does not change the definitions currently loaded by the map editor.
+Open **View → Units DEF editor** to edit one or more `JEDNOTKY.DEF` files for mods. You can copy unit definitions between files and preview their graphics and sounds. The **New unit...** workflow now creates definitions from templates, accepts PNG sprite folders, builds a modded `UNITS.FSU`, exports a modded `COMMON.FS`, and registers a newly added unit for immediate placement on a loaded map using **Place / test on map...**. Other DEF edits still operate on separate files until you explicitly register a new unit or reload the game assets. See [custom unit workflow](./doc/NEW_UNIT_WORKFLOW.md) for safety constraints and setup.
 
 ![Units editor](./doc/fig/scr_units_edit.png)
