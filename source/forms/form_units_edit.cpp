@@ -1805,12 +1805,13 @@ void FormUnitsEdit::OnTestUnitOnMap(wxCommandEvent& event)
 		return;
 	}
 
-	// Never reassign the address of a unit which may already be on a map.
-	if(id != m_spell_data->units->Count())
+	// Existing map units may hold raw pointers; only register new IDs.
+	const int next_id = m_spell_data->units->Count();
+	if(id < next_id)
 	{
-		wxMessageBox(string_format("Selected unit is #%d, next available live unit ID is #%d.\n"
-			"Register added units in order. Existing unit IDs cannot be replaced while a map is loaded.",
-			id,m_spell_data->units->Count()),"Unit map test",wxOK|wxICON_EXCLAMATION,this);
+		wxMessageBox("This unit is already loaded for map testing. To update its definition, "
+			"reload game assets from the mod folder before testing it again.",
+			"Unit map test",wxOK|wxICON_EXCLAMATION,this);
 		return;
 	}
 
@@ -1822,19 +1823,22 @@ void FormUnitsEdit::OnTestUnitOnMap(wxCommandEvent& event)
 		return;
 	}
 	const size_t rec_size = m_units->isEng() ? 207 : 206;
-	const size_t start = static_cast<size_t>(id) * rec_size;
-	if(def.size() < start + rec_size)
+	if(def.size() != static_cast<size_t>(m_units->Count()) * rec_size)
 	{
 		wxMessageBox("Invalid DEF record length.", "Unit map test",wxOK|wxICON_ERROR,this);
 		return;
 	}
-	std::vector<uint8_t> record(def.begin() + start,def.begin() + start + rec_size);
-	std::string error;
-	if(m_spell_data->RegisterUnitForMap(record,id,error))
+	for(int uid = next_id; uid <= id; ++uid)
 	{
-		wxMessageBox("Unit cannot be registered for map preview:\n" + wxString::FromUTF8(error.c_str()),
-			"Unit map test",wxOK|wxICON_ERROR,this);
-		return;
+		const size_t start = static_cast<size_t>(uid) * rec_size;
+		std::vector<uint8_t> record(def.begin() + start,def.begin() + start + rec_size);
+		std::string error;
+		if(m_spell_data->RegisterUnitForMap(record,uid,error))
+		{
+			wxMessageBox(wxString::Format("Cannot register unit #%d:\n",uid) +
+				wxString::FromUTF8(error.c_str()),"Unit map test",wxOK|wxICON_ERROR,this);
+			return;
+		}
 	}
 
 	auto* main = dynamic_cast<MainFrame*>(GetParent());
