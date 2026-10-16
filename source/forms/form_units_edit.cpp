@@ -1916,7 +1916,7 @@ static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
 	wxString cmd=quoted(program)+
 		" --background --factory-startup --python "+quoted(script)+
 		" -- --input "+quoted(model)+" --output "+quoted(tempDir)+
-		wxString::Format(" --views %d --resolution 512 --elevation %d --heading %d --frame 1",
+		wxString::Format(" --views %d --resolution 1024 --elevation %d --heading %d --frame 1",
 			views,elevation,heading*45);
 	wxArrayString stdOut,stdErr;
 	long result=0;
