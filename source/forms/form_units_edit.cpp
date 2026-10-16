@@ -12,6 +12,7 @@
 #include "spell_filter.h"
 #include "form_gr_encode.h"
 #include "main.h"
+#include "fs_archive.h"
 #include "wx_other.h"
 
 #include <wx/msgdlg.h>
@@ -460,6 +461,9 @@ FormUnitsEdit::FormUnitsEdit( wxWindow* parent, wxWindowID id,SpellData *spell_d
 	auto buildGraphicsButton = new wxButton(this, wxID_ANY, "Build PNG graphics / UNITS.FSU...");
 	bSizer130->Add(buildGraphicsButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
 	buildGraphicsButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnBuildUnitGraphics, this);
+	auto exportModButton = new wxButton(this, wxID_ANY, "Export mod COMMON.FS...");
+	bSizer130->Add(exportModButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
+	exportModButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnExportUnitMod, this);
 	Layout();
 	
 	// set icon
@@ -1515,6 +1519,61 @@ void FormUnitsEdit::OnUnitEndDrag(wxMouseEvent& event)
 
 
 
+
+
+
+// Export a complete, standalone COMMON.FS mod copy with the edited DEF inside.
+// The original archive is never modified; other files remain byte-for-byte.
+void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
+{
+	if(!m_units || !m_spell_data || m_spell_data->common_fs_source_path.empty())
+	{
+		wxMessageBox("Open a working JEDNOTKY.DEF and load game assets first.",
+			"Export unit mod",wxOK|wxICON_INFORMATION,this);
+		return;
+	}
+	std::vector<uint8_t> data;
+	if(m_units->GenerateDEF(data))
+	{
+		wxMessageBox("Cannot serialize unit definitions. Verify graphics names and unit attributes.",
+			"Export unit mod",wxOK|wxICON_ERROR,this);
+		return;
+	}
+	wxDirDialog saveDialog(this,"Select mod output folder (COMMON.FS + optionally UNITS.FSU)",
+		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+	if(saveDialog.ShowModal() != wxID_OK)
+		return;
+	auto dir = std::filesystem::path(saveDialog.GetPath().ToStdWstring());
+	auto dest = dir / "COMMON.FS";
+	if(std::filesystem::exists(dest))
+	{
+		wxMessageBox("COMMON.FS already exists at destination. Select a new mod folder.\n"
+			"The original and existing mods will never be overwritten automatically.",
+			"Export unit mod",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+	try
+	{
+		FSarchive base(m_spell_data->common_fs_source_path.wstring(),FSarchive::Options::NONE);
+		if(base.AddFile("JEDNOTKY.DEF",data,true))
+			throw std::runtime_error(base.m_last_error);
+		if(base.SaveFile(dest.wstring()))
+			throw std::runtime_error(base.m_last_error);
+		m_spell_data->export_path = dir.wstring();
+
+		wxMessageBox("Exported mod COMMON.FS with updated JEDNOTKY.DEF:\n"
+			+ wxString(dest.wstring()) +
+			"\n\nFor new graphics, keep the generated UNITS.FSU in this same folder.\n"
+			"Load the mod folder through the editor's game configuration "
+			"or your Reloaded mod deployment before launching a game test.",
+			"Export unit mod",wxOK|wxICON_INFORMATION,this);
+	}
+	catch(const std::exception& error)
+	{
+		wxMessageBox("Unable to build COMMON.FS:\n" +
+			wxString::FromUTF8(error.what()),"Export unit mod",wxOK|wxICON_ERROR,this);
+	}
+}
 
 
 // Import all PNG frames in a folder as a fresh FSU resource, merge that resource
