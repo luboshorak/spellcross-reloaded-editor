@@ -2776,8 +2776,8 @@ void FormUnitsEdit::OnTestUnitOnMap(wxCommandEvent& event)
 }
 
 
-// Guided unit creation. The existing DEF/property editors remain the source of
-// truth; this dialog only adds a record after validating the optional PNG import.
+// Guided unit creation: templates provide stats, external Blender provides
+// genuine 3D directional graphics for .glb/.gltf/.fbx models.
 void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 {
 	if(!m_units)
@@ -2826,26 +2826,29 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 	auto graphics = new wxPanel(pages);
 	auto graphicsSizer = new wxBoxSizer(wxVERTICAL);
 	graphicsSizer->Add(new wxStaticText(graphics, wxID_ANY,
-		"Optional: select any original PNG illustration or photo.\n"
-		"After creating the unit, a guided converter will cut out the object,\n"
-		"scale it to Spellcross size and optionally generate viewing directions."),
+		"Recommended: select a real 3D model (.glb, .gltf or .fbx).\n"
+		"Blender renders eight accurate directional views from actual geometry.\n"
+		"Legacy PNG import is available but cannot create real 3D viewpoints."),
 		0, wxALL, 10);
 	auto pngRow = new wxBoxSizer(wxHORIZONTAL);
 	auto pngField = new wxTextCtrl(graphics, wxID_ANY);
 	auto browse = new wxButton(graphics, wxID_ANY, "Browse...");
 	pngRow->Add(pngField, 1, wxRIGHT|wxEXPAND, 5);
 	pngRow->Add(browse, 0);
-	graphicsSizer->Add(new wxStaticText(graphics,wxID_ANY,"Source artwork (PNG):"),
+	graphicsSizer->Add(new wxStaticText(graphics,wxID_ANY,"Source 3D model / legacy PNG:"),
 		0,wxLEFT|wxRIGHT|wxTOP,10);
 	graphicsSizer->Add(pngRow,0,wxEXPAND|wxALL,10);
 	graphicsSizer->Add(new wxStaticText(graphics, wxID_ANY,
-		"No need to pre-size or name the PNG as a game sprite.\n"
-		"Your source artwork will never be overwritten."),
+		"3D rendering requires Blender installed on your computer.\n"
+		"Model files and original textures will not be modified."),
 		0, wxALL, 10);
 	browse->Bind(wxEVT_BUTTON, [&](wxCommandEvent&)
 	{
-		wxFileDialog pick(&dialog, "Select source artwork", wxEmptyString,
-			wxEmptyString, "PNG images (*.png)|*.png",
+		wxFileDialog pick(&dialog, "Select 3D unit model", wxEmptyString,
+			wxEmptyString,
+			"3D models (*.glb;*.gltf;*.fbx)|*.glb;*.gltf;*.fbx|"
+			"glTF binary (*.glb)|*.glb|glTF (*.gltf)|*.gltf|"
+			"FBX (*.fbx)|*.fbx|Legacy PNG (*.png)|*.png",
 			wxFD_OPEN|wxFD_FILE_MUST_EXIST);
 		if(pick.ShowModal() == wxID_OK)
 			pngField->SetValue(pick.GetPath());
@@ -2877,13 +2880,28 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 		}
 		if(!pngField->GetValue().IsEmpty())
 		{
-			wxImage testImage;
-			if(!testImage.LoadFile(pngField->GetValue(), wxBITMAP_TYPE_PNG))
+			const auto picked=std::filesystem::path(pngField->GetValue().ToStdWstring());
+			std::string extension=picked.extension().string();
+			for(char& c:extension)
+				c=static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			bool validType=extension==".glb" || extension==".gltf" ||
+				extension==".fbx" || extension==".png";
+			if(!validType || !std::filesystem::is_regular_file(picked))
 			{
-				wxMessageBox("Cannot read selected source artwork.", "New unit",
-					wxOK|wxICON_ERROR, &dialog);
+				wxMessageBox("Select an existing .glb, .gltf, .fbx or .png file.",
+					"New unit",wxOK|wxICON_ERROR,&dialog);
 				pages->SetSelection(1);
 				return;
+			}
+			if(extension==".png")
+			{
+				wxImage testImage;
+				if(!testImage.LoadFile(pngField->GetValue(),wxBITMAP_TYPE_PNG))
+				{
+					wxMessageBox("Cannot read legacy PNG.","New unit",wxOK|wxICON_ERROR,&dialog);
+					pages->SetSelection(1);
+					return;
+				}
 			}
 		}
 		dialog.EndModal(wxID_OK);
