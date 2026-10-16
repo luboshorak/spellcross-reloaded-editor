@@ -475,7 +475,7 @@ FormUnitsEdit::FormUnitsEdit( wxWindow* parent, wxWindowID id,SpellData *spell_d
 	auto buildGraphicsButton = new wxButton(this, wxID_ANY, "Build PNG graphics / UNITS.FSU...");
 	bSizer130->Add(buildGraphicsButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
 	buildGraphicsButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnBuildUnitGraphics, this);
-	auto imageButton = new wxButton(this, wxID_ANY, "Create game sprites from artwork...");
+	auto imageButton = new wxButton(this, wxID_ANY, "Import 3D model / build sprites...");
 	bSizer130->Add(imageButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
 	imageButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnGenerateGameSprites, this);
 	auto exportModButton = new wxButton(this, wxID_ANY, "Export mod COMMON.FS...");
@@ -2075,7 +2075,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	auto rotationField=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,modes);
 	rotationField->SetSelection(0);
 	grid->Add(rotationField,1,wxEXPAND);
-	grid->Add(new wxStaticText(&options,wxID_ANY,"Source image points toward:"),0,wxALIGN_CENTER_VERTICAL);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Model yaw / legacy PNG direction:"),0,wxALIGN_CENTER_VERTICAL);
 	wxArrayString sourceHeadings;
 	for(int k=0;k<8;++k)
 		sourceHeadings.Add(wxString::Format("Template direction %d",k+1));
