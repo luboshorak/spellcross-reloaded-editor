@@ -2287,13 +2287,25 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	auto unitMode=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,unitModes);
 	unitMode->SetSelection(m_unit->isAir()?0:1);
 	grid->Add(unitMode,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Ground sprite format:"),0,wxALIGN_CENTER_VERTICAL);
+	wxArrayString groundStyles;
+	groundStyles.Add("Vehicle: 13 slopes x 16 directions (208 frames)");
+	groundStyles.Add("Walker: 16 static + 10 x 8 movement (96 frames)");
+	auto groundStyle=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,groundStyles);
+	groundStyle->SetSelection(m_unit->isWalk()?1:0);
+	groundStyle->Enable(unitMode->GetSelection()==1);
+	grid->Add(groundStyle,1,wxEXPAND);
+	unitMode->Bind(wxEVT_CHOICE,[&](wxCommandEvent&)
+	{
+		groundStyle->Enable(unitMode->GetSelection()==1);
+	});
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Max object size (pixels):"),0,wxALIGN_CENTER_VERTICAL);
 	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,32,160,96);
 	grid->Add(sizeField,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Facing directions:"),0,wxALIGN_CENTER_VERTICAL);
 	wxArrayString modes;
-	modes.Add(model3D ? "8 real 3D camera viewpoints" : "8 reference-guided 2D rotations");
+	modes.Add(model3D ? "Native 3D directions (8 air / 16 ground)" : "8 reference-guided 2D rotations");
 	modes.Add(model3D ? "One 3D camera view" : "One fixed PNG view");
 	auto rotationField=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,modes);
 	rotationField->SetSelection(0);
@@ -2311,6 +2323,15 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		wxDefaultSize,wxSP_ARROW_KEYS,0,90,m_unit->isAir()?65:35);
 	cameraElevation->Enable(model3D);
 	grid->Add(cameraElevation,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Ground contact adjustment (px):"),0,wxALIGN_CENTER_VERTICAL);
+	auto contactOffset=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
+		wxDefaultSize,wxSP_ARROW_KEYS,-24,24,0);
+	contactOffset->Enable(unitMode->GetSelection()==1);
+	grid->Add(contactOffset,1,wxEXPAND);
+	unitMode->Bind(wxEVT_CHOICE,[&](wxCommandEvent&)
+	{
+		contactOffset->Enable(unitMode->GetSelection()==1);
+	});
 	grid->Add(new wxStaticText(&options,wxID_ANY,"3D lighting intensity (%):"),0,wxALIGN_CENTER_VERTICAL);
 	auto lightingField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
 		wxDefaultSize,wxSP_ARROW_KEYS,25,200,100);
@@ -2364,12 +2385,12 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		if(model3D)
 		{
 			auto renders=RenderModelWithBlender(this,source,
-				rotationField->GetSelection()==0?8:1,
+				rotationField->GetSelection()==0?(unitMode->GetSelection()==1?16:8):1,
 				cameraElevation->GetValue(),sourceHeadingField->GetSelection(),
 				lightingField->GetValue());
 			original=renders.front().Copy(); // info-portrait source: actual 3D render
 			frames=FitRenderedModelFrames(renders,sizeField->GetValue(),
-				unitMode->GetSelection()==1,m_unit->isWalk(),m_unit->gr_base);
+				unitMode->GetSelection()==1,groundStyle->GetSelection()==1,m_unit->gr_base);
 		}
 		else
 		{
@@ -2378,21 +2399,36 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
 				backgroundField->GetValue(),toleranceField->GetValue(),
 				rotationField->GetSelection()==0,unitMode->GetSelection()==1,
-				m_unit->isWalk(),m_unit->gr_base,sourceHeadingField->GetSelection());
+				groundStyle->GetSelection()==1,m_unit->gr_base,sourceHeadingField->GetSelection());
 		}
 		// Improve readability for the low-resolution indexed game palette.
 		// Applied to both 3D and legacy PNG input, not to the original file.
 		if(enhanceField->GetValue())
 			for(auto& sprite:frames)
 				EnhanceGameSprite(sprite);
-		// A one-view model still needs 8 azimuth slots because the game
-		// indexes direction tables with an azimuth ID, including static views.
+		// The original game indexes 8 air headings, but 16 ground headings.
+		// Legacy PNG generates only 8 angles; repeat each for both 22.5deg
+		// ground azimuth slots, without changing the air-unit behavior.
+		const int expected=unitMode->GetSelection()==1?16:8;
 		if(frames.size()==1)
 		{
 			const auto one=frames.front().Copy();
-			while(frames.size()<8)
+			while(frames.size()<static_cast<size_t>(expected))
 				frames.push_back(one.Copy());
 		}
+		else if(frames.size()==8 && expected==16)
+		{
+			std::vector<wxImage> expanded;
+			expanded.reserve(16);
+			for(const auto& image:frames)
+			{
+				expanded.push_back(image.Copy());
+				expanded.push_back(image.Copy());
+			}
+			frames=std::move(expanded);
+		}
+		if(frames.size()!=static_cast<size_t>(expected))
+			throw std::runtime_error("Unexpected directional frame count.");
 	}
 	catch(const std::exception& error)
 	{
