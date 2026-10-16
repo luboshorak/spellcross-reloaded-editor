@@ -526,6 +526,16 @@ MapUnit *FormUnits::DoAddUnit()
 		return(NULL);
 }
 
+// Select a newly registered unit in the existing map-placement UI.
+void FormUnits::SelectUnitType(int unit_id)
+{
+	if(!m_spell_data || !m_spell_data->units || unit_id < 0 || unit_id >= lboxUnits->GetCount())
+		return;
+	lboxUnits->SetSelection(unit_id);
+	lboxUnits->EnsureVisible(unit_id);
+	SelectUnit();
+}
+
 // set spellcross data ref
 void FormUnits::SetSpellData(SpellData* spelldata)
 {

@@ -2310,6 +2310,33 @@ void MainFrame::OnCreateNewObject(wxCommandEvent& event)
     //delete form;    
 }
 
+// Bridge from the DEF editor to the actual map placement workflow.
+bool MainFrame::OpenCustomUnitPlacement(int unit_id)
+{
+    if(!spell_data || !spell_data->units || !spell_map || !spell_map->IsLoaded())
+        return false;
+    if(unit_id < 0 || unit_id >= spell_data->units->Count())
+        return false;
+
+    auto* existing = dynamic_cast<FormUnits*>(FindWindowById(ID_UNITS_WIN));
+    if(existing)
+    {
+        existing->SetSpellData(spell_data);
+        existing->SetMapUnit(NULL, spell_map, &m_spell_unit_template);
+        existing->SelectUnitType(unit_id);
+        existing->Raise();
+        return true;
+    }
+
+    wxCommandEvent event;
+    OnAddUnit(event);
+    auto* created = dynamic_cast<FormUnits*>(FindWindowById(ID_UNITS_WIN));
+    if(!created)
+        return false;
+    created->SelectUnitType(unit_id);
+    return true;
+}
+
 // add new unit
 void MainFrame::OnAddUnit(wxCommandEvent& event)
 {

@@ -7,6 +7,13 @@
 
 #pragma once
 
+// Used by the artwork conversion and FSU export method declarations.
+#include <filesystem>
+#include <string>
+#include <map>
+#include <vector>
+#include <cstdint>
+
 // <wxFormsBuilder-include> - Section auto-inserted from 'forms.h' class 'FormUnitsEdit' on 2026-10-12 19:24:03
 #include <wx/artprov.h>
 #include <wx/xrc/xmlres.h>
@@ -74,6 +81,19 @@ class FormUnitsEdit : public wxFrame
 		void OnDefsPupup(wxCommandEvent& event);
 		void OnUnitsPupupOpen(wxMouseEvent& event);
 		void OnUnitsPupup(wxCommandEvent& event);
+		void OnNewUnit(wxCommandEvent& event);
+		void OnTestUnitOnMap(wxCommandEvent& event);
+		void OnBuildUnitGraphics(wxCommandEvent& event);
+		void OnGenerateGameSprites(wxCommandEvent& event);
+		void GenerateGameSpritesFromSource(const std::filesystem::path& source);
+		bool BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
+			const std::filesystem::path& output, const std::string& group);
+		bool CreateUnitIcon(const wxImage& sprite, const std::string& group);
+		bool CreateUnitInfoArt(const wxImage& source, const std::string& group);
+		// New graphics embedded into COMMON.FS when the mod is exported.
+		std::map<std::string, std::vector<uint8_t>> m_custom_icon_lz;
+		std::map<std::string, std::vector<uint8_t>> m_custom_info_files;
+		void OnExportUnitMod(wxCommandEvent& event);
 
 		wxString OnGetUnitName(long item);
 		void OnUnitBeginDrag(wxListEvent& event);

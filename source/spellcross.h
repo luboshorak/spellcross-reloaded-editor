@@ -101,8 +101,16 @@ public:
 	} special;
 	// units graphics (FSU)
 	FSUarchive *units_fsu;
+	std::filesystem::path common_fs_source_path;
+	std::filesystem::path info_fs_source_path;
+	// Exact archive selected by Reload; used to build safe mod copies.
+	std::filesystem::path units_fsu_source_path;
 	// units
 	SpellUnits* units;
+
+	// Register a single serialized DEF record without invalidating existing MapUnit pointers.
+	// The record must be the next available unit ID; it is fully linked against live assets.
+	int RegisterUnitForMap(const std::vector<uint8_t>& record, int expected_id, std::string& error);
 	// palettes
 	uint8_t (*map_pal)[3]; /* map environment common pal (index: 128 - 255) */
 	// fonts

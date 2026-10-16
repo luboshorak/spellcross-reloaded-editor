@@ -243,6 +243,47 @@ SpellData::SpellData(std::filesystem::path& data_path,std::filesystem::path& cd_
 		throw runtime_error(last_error);
 }
 
+// Append a mod unit for immediate map placement. Existing unit objects stay at
+// their addresses; SpellUnits owns the newly parsed record and its sound clones.
+int SpellData::RegisterUnitForMap(const std::vector<uint8_t>& record, int expected_id, std::string& error)
+{
+	if(!units || !units_fsu || !sounds)
+	{
+		error = "Spellcross data is not loaded.";
+		return 1;
+	}
+	if(expected_id != units->Count())
+	{
+		error = string_format("Unit ID %d is not the next available map unit ID (%d). Register units in order.",expected_id,units->Count());
+		return 1;
+	}
+	if(record.size() != 206 && record.size() != 207)
+	{
+		error = "Invalid serialized JEDNOTKY.DEF unit record size.";
+		return 1;
+	}
+	try
+	{
+		std::vector<uint8_t> one(record);
+		SpellUnits parsed(one,units_fsu,info_fs,&gres,&gres_info,sounds,unit_bonuses);
+		if(parsed.Count() != 1)
+		{
+			error = "Unexpected number of parsed unit definitions.";
+			return 1;
+		}
+		auto new_unit = parsed.GetUnits().front();
+		new_unit->type_id = expected_id;
+		// Transfer shared ownership, do not copy the sound pointers (they are owned).
+		units->GetUnits().push_back(new_unit);
+	}
+	catch(const std::exception& e)
+	{
+		error = e.what();
+		return 1;
+	}
+	return 0;
+}
+
 // load or reaload Spellcross data
 int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd_data_path,std::filesystem::path &mod_path,std::filesystem::path& spec_path,std::function<void(std::string)> status_list,std::function<void(std::string)> status_item)
 {
@@ -276,6 +317,7 @@ int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd
 		last_error = err_msg;
 		return(1);
 	}
+	common_fs_source_path = arch_path;
 	try{
 		common_fs = new FSarchive(arch_path,FSarchive::Options::DELZ_ALL);
 	}catch(const runtime_error& error){
@@ -308,6 +350,7 @@ int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd
 		last_error = err_msg;
 		return(1);
 	}
+	info_fs_source_path = arch_path;
 	try {
 		info_fs = new FSarchive(arch_path,FSarchive::Options::DELZ_ALL);
 	}
@@ -479,6 +522,7 @@ int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd
 		last_error = err_msg;
 		return(1);
 	}
+	units_fsu_source_path = arch_path;
 	try{
 		units_fsu = new FSUarchive(arch_path, FSUarchive::Options::NONE, status_item);
 	}catch(const runtime_error& error) {
