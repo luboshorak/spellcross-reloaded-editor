@@ -280,6 +280,9 @@ public:
 	
 	static const int wxID_PROC_THREAD = 7000;
 
+	// Open a prepared .info directly (for the new-unit workflow).
+	bool OpenInfoResource(const std::filesystem::path& info_path);
+
 	FormGResEncoder(wxWindow* parent,SpellData* spell_data,wxWindowID id = wxID_ANY,const wxString& title = wxT("Graphics Resource Encoder"),const wxPoint& pos = wxDefaultPosition,const wxSize& size = wxSize(1600,800),long style = wxDEFAULT_FRAME_STYLE|wxFRAME_FLOAT_ON_PARENT|wxTAB_TRAVERSAL);
 	~FormGResEncoder();
 
