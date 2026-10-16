@@ -1564,6 +1564,9 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 	std::filesystem::path output = outputDialog.GetPath().ToStdWstring();
 	m_spell_data->export_path = output.wstring();
 
+	palette->ClearUserRange();
+	palette->AddUserRangeStr("128-223");
+
 	const auto stage = output / ("spellcross_fsu_" + group);
 	const auto stage_group = stage / group;
 	const auto unitArchive = output / ("NEW_" + group + ".FSU");
@@ -1575,10 +1578,6 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 			"Choose an empty export folder. No existing files will be overwritten.",
 			"Build unit graphics",wxOK|wxICON_EXCLAMATION,this);
 		return;
-	}
-	if(std::filesystem::equivalent(source,m_spell_data->units_fsu_source_path.parent_path()))
-	{
-		// Legitimate source location, but only PNGs from this directory will be read.
 	}
 	auto* palette = m_spell_data->GetPalette("UNITS.PAL");
 	if(!palette)
