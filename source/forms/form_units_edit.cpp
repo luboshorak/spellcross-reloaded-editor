@@ -2015,8 +2015,11 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 // graphics group for the currently edited unit.
 void FormUnitsEdit::OnGenerateGameSprites(wxCommandEvent& event)
 {
-	wxFileDialog chooseArt(this,"Select an illustration or photo (PNG)",
-		wxEmptyString,wxEmptyString,"PNG files (*.png)|*.png",
+	wxFileDialog chooseArt(this,"Select 3D unit model or legacy PNG",
+		wxEmptyString,wxEmptyString,
+		"3D models (*.glb;*.gltf;*.fbx)|*.glb;*.gltf;*.fbx|"
+		"glTF binary (*.glb)|*.glb|glTF (*.gltf)|*.gltf|"
+		"FBX (*.fbx)|*.fbx|Legacy PNG (*.png)|*.png",
 		wxFD_OPEN|wxFD_FILE_MUST_EXIST);
 	if(chooseArt.ShowModal()!=wxID_OK)
 		return;
@@ -2031,12 +2034,23 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			"Create game sprites",wxOK|wxICON_INFORMATION,this);
 		return;
 	}
+	std::string ext=source.extension().string();
+	for(char& ch:ext)ch=static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+	const bool model3D=(ext==".glb" || ext==".gltf" || ext==".fbx");
+	if(!model3D && ext!=".png")
+	{
+		wxMessageBox("Supported sources: .glb, .gltf, .fbx and legacy .png.",
+			"Unit 3D model",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
 	wxDialog options(this,wxID_ANY,"Create Spellcross unit graphics",
 		wxDefaultPosition,wxSize(520,400),wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER);
 	auto layout=new wxBoxSizer(wxVERTICAL);
 	layout->Add(new wxStaticText(&options,wxID_ANY,
-		"Convert the source picture into small transparent game sprites.\n"
-		"Automatic rotation works best with top-down vehicles and aircraft."),
+		model3D ? "Render real 3D camera azimuths using Blender. Each heading is\n"
+			"a different view of your actual model, not a rotated flat picture."
+			: "Legacy PNG conversion: reference-guided flat rotations only.\n"
+			"Use a 3D model for physically correct perspectives."),
 		0,wxALL,12);
 	auto grid=new wxFlexGridSizer(2,8,10);
 	grid->AddGrowableCol(1,1);
@@ -2056,8 +2070,8 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	grid->Add(sizeField,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Facing directions:"),0,wxALIGN_CENTER_VERTICAL);
 	wxArrayString modes;
-	modes.Add("8 rotated views - aircraft/top-down object");
-	modes.Add("One fixed view - perspective artwork");
+	modes.Add(model3D ? "8 real 3D camera viewpoints" : "8 reference-guided 2D rotations");
+	modes.Add(model3D ? "One 3D camera view" : "One fixed PNG view");
 	auto rotationField=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,modes);
 	rotationField->SetSelection(0);
 	grid->Add(rotationField,1,wxEXPAND);
@@ -2069,18 +2083,27 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		wxDefaultSize,sourceHeadings);
 	sourceHeadingField->SetSelection(0);
 	grid->Add(sourceHeadingField,1,wxEXPAND);
-	grid->Add(new wxStaticText(&options,wxID_ANY,"Background tolerance:"),0,wxALIGN_CENTER_VERTICAL);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"3D camera elevation (degrees):"),0,wxALIGN_CENTER_VERTICAL);
+	auto cameraElevation=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
+		wxDefaultSize,wxSP_ARROW_KEYS,0,90,m_unit->isAir()?65:35);
+	cameraElevation->Enable(model3D);
+	grid->Add(cameraElevation,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Background tolerance (PNG):"),0,wxALIGN_CENTER_VERTICAL);
 	auto toleranceField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,0,100,32);
+	toleranceField->Enable(!model3D);
 	grid->Add(toleranceField,1,wxEXPAND);
 	layout->Add(grid,0,wxEXPAND|wxLEFT|wxRIGHT,12);
 	auto backgroundField=new wxCheckBox(&options,wxID_ANY,
 		"Remove plain background connected to image edges");
-	backgroundField->SetValue(true);
+	backgroundField->SetValue(!model3D);
+	backgroundField->Enable(!model3D);
 	layout->Add(backgroundField,0,wxALL,12);
 	layout->Add(new wxStaticText(&options,wxID_ANY,
-		"Transparent source PNGs keep their transparency. The original\n"
-		"artwork is never modified. A preview is shown before exporting."),
+		model3D ? "Blender renders transparent RGBA frames with a fixed orthographic\n"
+			"camera scale. Your model and textures remain unchanged."
+			: "Transparent source PNGs keep their transparency. The original\n"
+			"artwork is never modified. A preview is shown before exporting."),
 		0,wxLEFT|wxRIGHT|wxBOTTOM,12);
 	auto buttons=new wxStdDialogButtonSizer();
 	buttons->AddButton(new wxButton(&options,wxID_OK,"Preview sprites"));
@@ -2106,12 +2129,24 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	wxImage original; // also needed later for INFO.FS artwork generation
 	try
 	{
-		if(!original.LoadFile(wxString(source.wstring()),wxBITMAP_TYPE_PNG))
-			throw std::runtime_error("Cannot load the selected source PNG.");
-		frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
-			backgroundField->GetValue(),toleranceField->GetValue(),
-			rotationField->GetSelection()==0,unitMode->GetSelection()==1,
-			m_unit->gr_base,sourceHeadingField->GetSelection());
+		if(model3D)
+		{
+			auto renders=RenderModelWithBlender(this,source,
+				rotationField->GetSelection()==0?8:1,
+				cameraElevation->GetValue(),sourceHeadingField->GetSelection());
+			original=renders.front().Copy(); // info-portrait source: actual 3D render
+			frames=FitRenderedModelFrames(renders,sizeField->GetValue(),
+				unitMode->GetSelection()==1);
+		}
+		else
+		{
+			if(!original.LoadFile(wxString(source.wstring()),wxBITMAP_TYPE_PNG))
+				throw std::runtime_error("Cannot load the selected source PNG.");
+			frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
+				backgroundField->GetValue(),toleranceField->GetValue(),
+				rotationField->GetSelection()==0,unitMode->GetSelection()==1,
+				m_unit->gr_base,sourceHeadingField->GetSelection());
+		}
 	}
 	catch(const std::exception& error)
 	{
