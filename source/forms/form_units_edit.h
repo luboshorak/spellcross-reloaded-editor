@@ -76,6 +76,7 @@ class FormUnitsEdit : public wxFrame
 		void OnUnitsPupup(wxCommandEvent& event);
 		void OnNewUnit(wxCommandEvent& event);
 		void OnTestUnitOnMap(wxCommandEvent& event);
+		void OnBuildUnitGraphics(wxCommandEvent& event);
 
 		wxString OnGetUnitName(long item);
 		void OnUnitBeginDrag(wxListEvent& event);
