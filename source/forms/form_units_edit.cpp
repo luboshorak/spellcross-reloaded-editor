@@ -1594,7 +1594,7 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 			{
 				for(auto& ch : stem)
 					ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-				spriteField->SetValue(wxString::FromUTF8(stem));
+				spriteField->SetValue(wxString::FromUTF8(stem.c_str()));
 			}
 		}
 	});
@@ -1767,7 +1767,7 @@ void FormUnitsEdit::OnUnitsPupupOpen(wxMouseEvent& event)
 	menu.Append((int)PopupActions::CLR_ALL_UNITS,"Clear all");
 	menu.Append((int)PopupActions::SEL_ALL_UNITS,"Select all");
 	menu.AppendSeparator();
-	menu.Append((int)PopupActions::ADD_UNIT,"Add new unit");
+	menu.Append((int)PopupActions::ADD_UNIT,"New unit...");
 
 	wxArrayInt sel;
 	lboxTargetDef->GetSelections(sel);
