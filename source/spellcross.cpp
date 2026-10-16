@@ -317,6 +317,7 @@ int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd
 		last_error = err_msg;
 		return(1);
 	}
+	common_fs_source_path = arch_path;
 	try{
 		common_fs = new FSarchive(arch_path,FSarchive::Options::DELZ_ALL);
 	}catch(const runtime_error& error){
