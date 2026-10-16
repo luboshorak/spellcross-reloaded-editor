@@ -103,6 +103,10 @@ public:
 	FSUarchive *units_fsu;
 	// units
 	SpellUnits* units;
+
+	// Register a single serialized DEF record without invalidating existing MapUnit pointers.
+	// The record must be the next available unit ID; it is fully linked against live assets.
+	int RegisterUnitForMap(const std::vector<uint8_t>& record, int expected_id, std::string& error);
 	// palettes
 	uint8_t (*map_pal)[3]; /* map environment common pal (index: 128 - 255) */
 	// fonts
