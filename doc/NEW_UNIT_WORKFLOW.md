@@ -26,9 +26,20 @@ DEF editing, FSU archive building, map placement and mod export.
 6. Check the preview. If satisfied, click **Build game graphics** and choose
    a writable mod export folder.
 
-The converter flood-removes uniform border background, crops around the
-visible subject, scales it while preserving aspect ratio and generates
-centered sprites. It writes `A00...A07` as one-frame movement sprites and
+The converter flood-removes a uniform border background, crops around the
+visible subject, and scales the sprite. Its **Map unit scale** setting is
+explicit: **Air** may extend over neighboring tiles; **Ground** is
+limited to one Spellcross tile's 80 × 48 pixel footprint. Generated
+sprite offsets use Spellcross's native (x=40, y=128) FSU anchor rather
+than an arbitrary centered source-image origin.
+
+For multi-direction units, the converter uses the **currently cloned
+unit's real FSU direction silhouettes and offsets** to adjust the
+direction-specific width, height and attachment position. The **Source
+image points toward** selector aligns the supplied picture with the
+template's first/eighth azimuth order. These reference-guided affine
+views reproduce more of the original directional behavior than simple
+uniform 2D rotation, but cannot invent surfaces hidden in one photograph. It writes `A00...A07` as one-frame movement sprites and
 `F00...F07` as static direction sprites (for one-view mode only `A00` and
 `F00`). The game cannot infer unseen details of an aircraft or vehicle:
 this is **2D rotation**, not actual 3D camera-view synthesis.
@@ -38,11 +49,23 @@ to quantize the new images, produces a named FSU resource and merges it with
 a copy of the loaded `UNITS.FSU`. The new group is linked to your unit in
 the currently running editor; the original commercial archives are unchanged.
 
+The unit also gets its **own UI resources**, not the template's image:
+- a new `I_<group>.LZ` tactical-unit icon (60-pixel-wide, indexed with
+  `UNITS.PAL`, immediately previewable in the editor);
+- a new `N<group>.LZ` info/portrait image with a separate
+  `N<group>.PAL` 192-color palette inside the exported `INFO.FS`.
+
+The original icon and INFO picture references are cleared when a new
+unit is cloned. You must either generate these resources or explicitly
+provide replacements before using the unit in gameplay.
+
 Export results include:
 - `spellcross_source_<group>/` — generated small PNGs and their .info files
 - `spellcross_fsu_<group>/<group>/` — encoded 3-character FSU sprites
 - `NEW_<group>.FSU` — standalone new resource for inspection
 - `UNITS.FSU` — merged mod archive
+- `COMMON.FS` — later exported unit definitions and custom icon(s)
+- `INFO.FS` — later exported custom unit portrait(s) and palettes
 
 The editor refuses to overwrite existing generated archives and metadata.
 
@@ -69,8 +92,10 @@ preview instead of leaving the panel blank.
    and check orientation, size, rendering and stats.
 5. To export the definition to Reloaded, click **Export mod COMMON.FS...**
    and choose the folder containing the generated `UNITS.FSU`. The export
-   replaces `JEDNOTKY.DEF` inside a **copy** of the original `COMMON.FS`.
-   The original archives are never overwritten.
+   replaces `JEDNOTKY.DEF` inside a **copy** of the original `COMMON.FS`,
+   adds custom `I_*.LZ` unit icons, and creates a corresponding mod copy
+   of `INFO.FS` containing new unit portraits and palettes. The
+   original archives are never overwritten.
 
 To test in the Reloaded game executable, configure your game's mod/data
 path to use this mod folder and load a custom tactical mission. The editor
@@ -81,10 +106,11 @@ does not yet automatically install the mod or launch the game process.
 - Removing a complex photographic background is **not** AI segmentation.
   Plain/near-plain edge-connected backgrounds are supported. For a complex
   environment, provide a transparent PNG of the aircraft/object instead.
-- Eight-view rotation assumes top-down artwork; perspective sprites require
-  artist-provided viewpoints. A single source image does not create real
-  walking/fire/dying animations. Generated movement frames are repeated
-  one-frame poses to support moving units at different headings.
+- Reference-guided directional views use affine projection of an existing
+  unit's FSU dimensions and anchor points. This **is not** genuine 3D
+  camera rotation; perspective sprites still benefit from manually drawn
+  views. One photo also cannot create actual walking/firing/dying motion.
+  Generated movement frames are one-frame poses per heading.
 - Editor preview registration is **append-only**: to change a unit already
   registered in memory, reload game data with the updated mod and start again.
 - **Build/runtime status:** the new converter and pipeline are not yet
