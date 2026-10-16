@@ -21,6 +21,11 @@
 #include <wx/dirdlg.h>
 #include <wx/dragimag.h>
 #include <wx/textdlg.h>
+#include <wx/statbmp.h>
+#include <wx/checkbox.h>
+#include <wx/spinctrl.h>
+#include <deque>
+#include <cstring>
 #include <wx/stattext.h>
 #include <wx/button.h>
 #include <wx/textctrl.h>
@@ -462,6 +467,9 @@ FormUnitsEdit::FormUnitsEdit( wxWindow* parent, wxWindowID id,SpellData *spell_d
 	auto buildGraphicsButton = new wxButton(this, wxID_ANY, "Build PNG graphics / UNITS.FSU...");
 	bSizer130->Add(buildGraphicsButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
 	buildGraphicsButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnBuildUnitGraphics, this);
+	auto imageButton = new wxButton(this, wxID_ANY, "Create game sprites from artwork...");
+	bSizer130->Add(imageButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
+	imageButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnGenerateGameSprites, this);
 	auto exportModButton = new wxButton(this, wxID_ANY, "Export mod COMMON.FS...");
 	bSizer130->Add(exportModButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
 	exportModButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnExportUnitMod, this);
@@ -1590,12 +1598,28 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 		return;
 	}
 
-	wxTextEntryDialog nameDialog(this,
-		"Enter a unique FSU group name (1-5 uppercase letters or digits):",
-		"New UNITS.FSU graphics group","U001");
-	if(nameDialog.ShowModal() != wxID_OK)
-		return;
-	std::string group = nameDialog.GetValue().ToStdString();
+	std::string group;
+	std::filesystem::path source;
+	std::filesystem::path output;
+	if(!m_generated_source.empty())
+	{
+		group = m_generated_group;
+		source = m_generated_source;
+		output = m_generated_output;
+		m_generated_source.clear();
+		m_generated_output.clear();
+		m_generated_group.clear();
+	}
+	else
+	{
+		wxTextEntryDialog nameDialog(this,
+			"Enter a unique FSU group name (1-5 uppercase letters or digits):",
+			"New UNITS.FSU graphics group","U001");
+		if(nameDialog.ShowModal() != wxID_OK)
+			return;
+		group = nameDialog.GetValue().ToStdString();
+	}
+
 	bool valid = !group.empty() && group.size() <= 5;
 	for(unsigned char ch : group)
 		valid = valid && ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'));
@@ -1612,16 +1636,19 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 		return;
 	}
 
-	wxDirDialog sourceDialog(this,"Select folder of PNG unit sprites (all directions/frames)",
-		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
-	if(sourceDialog.ShowModal() != wxID_OK)
-		return;
-	std::filesystem::path source = sourceDialog.GetPath().ToStdWstring();
-	wxDirDialog outputDialog(this,"Select an export folder for modded UNITS.FSU",
-		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
-	if(outputDialog.ShowModal() != wxID_OK)
-		return;
-	std::filesystem::path output = outputDialog.GetPath().ToStdWstring();
+	if(source.empty())
+	{
+		wxDirDialog sourceDialog(this,"Select folder of PNG unit sprites (all directions/frames)",
+			m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+		if(sourceDialog.ShowModal() != wxID_OK)
+			return;
+		source = sourceDialog.GetPath().ToStdWstring();
+		wxDirDialog outputDialog(this,"Select an export folder for modded UNITS.FSU",
+			m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+		if(outputDialog.ShowModal() != wxID_OK)
+			return;
+		output = outputDialog.GetPath().ToStdWstring();
+	}
 	m_spell_data->export_path = output.wstring();
 
 	const auto stage = output / ("spellcross_fsu_" + group);
