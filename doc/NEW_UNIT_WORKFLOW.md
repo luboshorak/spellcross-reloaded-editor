@@ -40,9 +40,10 @@ embedded into the editor.
    limit. The lowest opaque pixel is anchored to the terrain origin in
    each direction, so transparent borders cannot lift the unit above the
    map. When Ground is selected on an aircraft template, its game unit
-   classification also switches from Air to Armored Ground and its Flight
-   flag is cleared. Preserve Light/Armored and Walk flags for an
-   already-ground template.\n
+   classification also switches from Air to Armored Ground. The Flight
+   flag is cleared, as is the separate Turret flag (the 3D render includes
+   the turret in its main sprite and exports no independent turret layer).
+   Preserve Light/Armored and Walk flags for an already-ground template.\n
    The **Enhance fine details** checkbox is enabled by default. It now
    applies only restrained shadow correction and mild alpha-safe edge
    sharpening **after downscaling and before** the fixed `UNITS.PAL`
