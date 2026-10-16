@@ -2415,7 +2415,12 @@ bool FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 				throw std::runtime_error("Failed loading PNG sprite: " + item.png.string());
 			SpellGraphicItem gres;
 			std::vector<ImgQuantize::Pixel> pixels;
-			int shadow_color[3] = {-1,-1,-1};
+			// A negative shadow color means "disabled", not opaque white.
+			// Do not accidentally encode white parts of aircraft as shadows.
+			int* shadow_color = nullptr;
+			if(item.meta.isLoaded() && item.meta.shadow_color[0]>=0 &&
+				item.meta.shadow_color[1]>=0 && item.meta.shadow_color[2]>=0)
+				shadow_color = item.meta.shadow_color;
 			auto x_size = item.meta.isLoaded() ? item.meta.x_size : bmp.GetWidth();
 			auto y_size = item.meta.isLoaded() ? item.meta.y_size : bmp.GetHeight();
 			if(x_size <= 0 || y_size <= 0 || x_size > 4096 || y_size > 4096)
