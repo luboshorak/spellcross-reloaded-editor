@@ -14,6 +14,7 @@
 #include <wx/app.h> // wxApp base class used in main.h
 #include "main.h"
 #include "fs_archive.h"
+#include "LZ_spell.h"
 #include "wx_other.h"
 
 #include <wx/msgdlg.h>
@@ -2005,8 +2006,9 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 					throw std::runtime_error("Cannot save generated sprite metadata "+code);
 			}
 
-		// Build the FSU archive directly; no intermediate UI state is needed.
-		BuildUnitGraphicsFromFolder(spritesDir,output,group);
+		// Only register the new icon after the graphics archive was built.
+		if(BuildUnitGraphicsFromFolder(spritesDir,output,group))
+			CreateUnitIcon(frames[0],group);
 	}
 	catch(const std::exception& error)
 	{
@@ -2066,12 +2068,12 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 }
 
 // Keep the core archive transformation reusable from manual and artwork import.
-void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
+bool FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
 	const std::filesystem::path& output,const std::string& group)
 {
 	if(!m_unit || !m_spell_data || !m_spell_data->units_fsu ||
 		m_spell_data->units_fsu_source_path.empty())
-		return;
+		return false;
 	const auto stage = output / ("spellcross_fsu_" + group);
 	const auto stage_group = stage / group;
 	const auto unitArchive = output / ("NEW_" + group + ".FSU");
@@ -2082,14 +2084,14 @@ void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 		wxMessageBox("Output already contains a generated file or working folder.\n"
 			"Choose an empty export folder. No existing files will be overwritten.",
 			"Build unit graphics",wxOK|wxICON_EXCLAMATION,this);
-		return;
+		return false;
 	}
 	auto* palette = m_spell_data->GetPalette("UNITS.PAL");
 	if(!palette)
 	{
 		wxMessageBox("The loaded game has no UNITS.PAL palette.","Build unit graphics",
 			wxOK|wxICON_ERROR,this);
-		return;
+		return false;
 	}
 	palette->ClearUserRange();
 	palette->AddUserRangeStr("128-223");
@@ -2124,7 +2126,7 @@ void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 				{
 					wxMessageBox("Incompatible metadata for " + wxString(path.filename().wstring()),
 						"Build unit graphics",wxOK|wxICON_ERROR,this);
-					return;
+					return false;
 				}
 				code = meta.name;
 			}
@@ -2139,14 +2141,14 @@ void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 				wxMessageBox("Every PNG needs a three-character sprite code "
 					"(file name or matching .info):\n" + wxString(path.filename().wstring()),
 					"Build unit graphics",wxOK|wxICON_ERROR,this);
-				return;
+				return false;
 			}
 			for(const auto& other : sources)
 				if(other.code == code)
 				{
 					wxMessageBox("Duplicate FSU sprite code: " + wxString::FromUTF8(code.c_str()),
 						"Build unit graphics",wxOK|wxICON_ERROR,this);
-					return;
+					return false;
 				}
 			sources.push_back({path,code,meta});
 		}
@@ -2154,13 +2156,13 @@ void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 		{
 			wxMessageBox("The source folder contains no PNG sprites.", "Build unit graphics",
 				wxOK|wxICON_EXCLAMATION,this);
-			return;
+			return false;
 		}
 		if(sources.size() > 255)
 		{
 			wxMessageBox("Too many sprites for one group.", "Build unit graphics",
 				wxOK|wxICON_ERROR,this);
-			return;
+			return false;
 		}
 
 		// Only after all inputs have been validated do we create export files.
@@ -2225,12 +2227,14 @@ void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 			"\n\nThe graphic group is now available in this editor session. "
 			"Save your JEDNOTKY.DEF and click Place / test on map.",
 			"Build unit graphics",wxOK|wxICON_INFORMATION,this);
+		return true;
 	}
 	catch(const std::exception& error)
 	{
 		wxMessageBox("Graphics build failed:\n" + wxString::FromUTF8(error.what()) +
 			"\n\nAny output already written is in the selected export folder.",
 			"Build unit graphics",wxOK|wxICON_ERROR,this);
+		return false;
 	}
 }
 
