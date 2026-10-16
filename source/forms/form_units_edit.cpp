@@ -2435,7 +2435,10 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 				if(kind==SpellUnitRec::UTYPE_TYPE_AIR)
 					m_unit->utype=(m_unit->utype & ~SpellUnitRec::UTYPE_TYPE_MASK)
 						| SpellUnitRec::UTYPE_TYPE_ARMORED;
-				m_unit->utype &= ~SpellUnitRec::UTYPE_FLY;
+				// A full 3D render already includes the entire vehicle body.
+				// The converter deliberately does not produce a separate turret
+				// graphics resource, so don't inherit a phantom turret flag.
+				m_unit->utype &= ~(SpellUnitRec::UTYPE_FLY | SpellUnitRec::UTYPE_TURRET);
 				// Synchronize the Basic / movement properties with the updated
 				// ground class before the unit is registered for map placement.
 				wxCommandEvent refreshProperties;
