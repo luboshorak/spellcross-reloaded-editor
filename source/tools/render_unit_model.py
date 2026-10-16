@@ -20,6 +20,8 @@ def parse_args():
     parser.add_argument('--elevation', type=float, default=40.0)
     parser.add_argument('--heading', type=float, default=0.0)
     parser.add_argument('--frame', type=int, default=1)
+    parser.add_argument('--lighting', type=int, default=100,
+                        help='Lighting intensity percentage, 25..200 (default 100)')
     return parser.parse_args(argv)
 
 def load_model(path):
@@ -75,6 +77,8 @@ def render_views(args):
         raise ValueError('Resolution must be 128..2048')
     if not 0 <= args.elevation <= 90:
         raise ValueError('Elevation must be 0..90')
+    if not 25 <= args.lighting <= 200:
+        raise ValueError('Lighting must be between 25 and 200 percent')
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
     load_model(model)
@@ -107,10 +111,10 @@ def render_views(args):
     scene.view_settings.view_transform = 'Standard'
     world = bpy.data.worlds.new('Spellcross Ambient')
     world.use_nodes = True
-    world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.85, 0.88, 0.95, 1.0)
-    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.15
-    # Favor texture readability, especially on dark vehicles and aircraft.
-    scene.view_settings.exposure = 0.45
+    world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.65, 0.68, 0.74, 1.0)
+    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.60
+    # No exposure boost: preserve the materials' highlights and colors.
+    scene.view_settings.exposure = 0.0
     scene.world = world
 
     cam_data = bpy.data.cameras.new('Spellcross Camera')
@@ -120,12 +124,13 @@ def render_views(args):
     # Single fixed scale is critical: don't enlarge individual directions.
     cam_data.ortho_scale = radius * 2.4
     scene.camera = cam
-    # Broad multidirectional light rig; avoids losing all detail on the
-    # unlit side as the camera orbits through eight directions.
-    light(scene,'Spellcross Key',center,(-1.4,-2.0,3.0),radius,1150)
-    light(scene,'Spellcross Fill',center,(1.7,1.8,2.0),radius,850)
-    light(scene,'Spellcross Rim',center,(0.6,2.7,3.0),radius,700)
-    light(scene,'Spellcross Side',center,(-2.4,1.2,2.2),radius,450)
+    # Preserve model scale invariance, but use restrained radiometric power.
+    # Previous 1150+850+700+450 watts * radius^2 flattened highlights.
+    strength = args.lighting / 100.0
+    light(scene,'Spellcross Key',center,(-1.4,-2.0,3.0),radius,150*strength)
+    light(scene,'Spellcross Fill',center,(1.7,1.8,2.0),radius,90*strength)
+    light(scene,'Spellcross Rim',center,(0.6,2.7,3.0),radius,45*strength)
+    light(scene,'Spellcross Side',center,(-2.4,1.2,2.2),radius,35*strength)
     elevation = math.radians(args.elevation)
     for index in range(args.views):
         az = math.radians(args.heading + index * 45)
