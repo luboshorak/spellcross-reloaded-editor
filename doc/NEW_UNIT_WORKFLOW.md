@@ -29,14 +29,18 @@ embedded into the editor.
    using 16 standing directions plus 10 movement poses across 8 headings.
    Upright sprites may extend above the 48px terrain diamond.
    **Ground size relative to template (%)** now defaults to **125%**
-   and can be adjusted from 50% to 200%. The former hardcoded width/height
-   clamps have been removed: the imported 3D silhouette is scaled from the
-   original reference unit's actual occupied dimensions. **Max object size**
-   (default 144px for ground units) limits height and maximum sprite extent.
-   Horizontal size is still capped at 80px because the original FSU row
-   offsets are unsigned and centered at map X=40; going wider would wrap
-   the left edge and corrupt the sprite position. The transparent work
-   canvas grows in height when needed, rather than cropping tall models.
+   and can be adjusted from 50% to 200%. The former fixed width/height
+   clamps have been removed: the imported 3D silhouette starts with the
+   reference unit's actual occupied dimensions. **Reference size limit at
+   100%** (default 144px for ground units) bounds the unscaled reference;
+   the **percentage is applied afterwards**, up to a final 320px limit.
+   Importantly, original FSU sprite row offsets are **signed 16-bit values
+   when decoded**, so units can extend left and right beyond an 80px tile.
+   We removed the incorrect 80px artwork cap and expand the transparent
+   canvas in both dimensions as needed. The 3D preview shows the **visible
+   object width/height in pixels**, not just the transparent canvas size:
+   that lets you verify that changing 100% to 200% has an actual effect.
+   Large sprites may overlap neighboring map tiles, as intended.
 5. Set **3D camera elevation**, initially 65° for aircraft or 35° for
    ground units. Select the model's forward direction with **Source image
    points toward**. The default assumes forward is negative Y in the
