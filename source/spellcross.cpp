@@ -350,6 +350,7 @@ int SpellData::Reload(std::filesystem::path &data_path,std::filesystem::path& cd
 		last_error = err_msg;
 		return(1);
 	}
+	info_fs_source_path = arch_path;
 	try {
 		info_fs = new FSarchive(arch_path,FSarchive::Options::DELZ_ALL);
 	}
