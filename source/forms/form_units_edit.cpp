@@ -1544,6 +1544,18 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 			"Export unit mod",wxOK|wxICON_INFORMATION,this);
 		return;
 	}
+	if(m_spell_data->units)
+	{
+		for(const auto& rec : m_units->GetUnits())
+		{
+			if(rec && rec->type_id >= m_spell_data->units->Count() && rec->icon.empty())
+			{
+				wxMessageBox("Some new units have no icon. Generate a custom icon from artwork "
+					"before exporting them.", "Export unit mod",wxOK|wxICON_EXCLAMATION,this);
+				return;
+			}
+		}
+	}
 	std::vector<uint8_t> data;
 	if(m_units->GenerateDEF(data))
 	{
