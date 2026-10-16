@@ -1669,13 +1669,28 @@ static GroundSpriteSize GetGroundSpriteSize(const FSU_resource* reference,
 	return {width,height};
 }
 
-// Last actually rendered opaque row, not the bottom of a transparent PNG.
-// FSU's Y reference is 128. For ground units, this row MUST meet the
-// terrain origin, otherwise a 10+ pixel invisible margin makes them float.
-static int GroundFootOffset(const wxImage& sprite)
+// Match original ground FSU offsets, not the sprite's invisible canvas.
+// The map draws non-walking units at tile.y_ofs and FSU at (y_ofs-128).
+// On a flat 80px diamond the terrain CENTER is roughly 32px below that
+// origin, so a hardcoded bottom at 127 made imported vehicles hover.
+static const FSU_sprite* GroundReferenceSprite(const FSU_resource* reference,
+	int slope, int direction, bool walker)
+{
+	if(!reference || reference->stat.azimuths<=0)
+		return nullptr;
+	const int useSlope=(!walker && reference->stat.slopes>=13)?slope:0;
+	const auto& row=reference->stat.lists[useSlope];
+	if(row.empty())
+		return nullptr;
+	const size_t index=static_cast<size_t>(
+		std::lround(static_cast<double>(direction)*row.size()/16.0))%row.size();
+	return row[index];
+}
+static int GroundFootOffset(const wxImage& sprite, const FSU_resource* reference,
+	int slope, int direction, bool walker, int adjustment)
 {
 	if(!sprite.IsOk())
-		return 128;
+		throw std::runtime_error("Invalid ground sprite.");
 	const int width=sprite.GetWidth(), height=sprite.GetHeight();
 	int bottom=-1;
 	if(sprite.HasAlpha())
@@ -1690,7 +1705,55 @@ static int GroundFootOffset(const wxImage& sprite)
 		bottom=height-1;
 	if(bottom<0)
 		throw std::runtime_error("Ground sprite has no opaque pixels after scaling.");
-	return 128-bottom-1;
+
+	// Template anchor includes slope-specific body height and terrain contact.
+	// Use it only for complete original ground resources, not for the
+	// incomplete 8-heading custom resources from older editor revisions.
+	int referenceBottom=160;
+	const auto* original=GroundReferenceSprite(reference,slope,direction,walker);
+	const bool validReference=reference && reference->stat.azimuths>=16 &&
+		(walker ? reference->anim.frames>1 : reference->stat.slopes>=13);
+	if(validReference && original && original->y_size>0)
+		referenceBottom=original->y_ofs+original->y_size-1;
+	return referenceBottom-bottom+adjustment;
+}
+
+// Original tracked/wheeled vehicle FSU resources use 13 terrain slopes
+// (A..M) and 16 azimuths. Generate slope-dependent vertical shearing
+// from Spellcross's own tile-vertex height patterns. These are constrained
+// preview/FSU poses, not a substitute for actual suspension animation.
+static wxImage AdaptGroundFrameToSlope(const wxImage& source,int slope)
+{
+	if(slope==0)
+		return source.Copy();
+	static constexpr int heights[13][4]={
+		{0,0,0,0},{1,1,1,0},{0,1,0,0},{0,1,1,0},
+		{0,0,1,0},{0,1,1,1},{0,0,1,1},{0,0,0,1},
+		{1,0,1,1},{1,0,0,1},{1,0,0,0},{1,1,0,1},
+		{1,1,0,0}};
+	if(slope<0 || slope>=13 || !source.IsOk() || !source.HasAlpha())
+		throw std::runtime_error("Invalid slope sprite conversion.");
+	const int w=source.GetWidth(),h=source.GetHeight();
+	wxImage result(w,h);
+	result.InitAlpha();
+	std::memset(result.GetData(),0,static_cast<size_t>(w)*h*3);
+	std::memset(result.GetAlpha(),0,static_cast<size_t>(w)*h);
+	for(int y=0;y<h;++y)
+		for(int x=0;x<w;++x)
+		{
+			// Side-to-side roll; front-to-back slope subtly changes pitch.
+			const double localX=(x-(w-1)/2.0)/40.0;
+			const double localY=(y-(h-1)/2.0)/48.0;
+			const double dy=5.0*(heights[slope][0]-heights[slope][2])*localX+
+				3.0*(heights[slope][1]-heights[slope][3])*localY;
+			const int sy=static_cast<int>(std::lround(y+dy));
+			if(sy<0 || sy>=h)continue;
+			const size_t dst=static_cast<size_t>(y)*w+x;
+			const size_t src=static_cast<size_t>(sy)*w+x;
+			std::memcpy(result.GetData()+3*dst,source.GetData()+3*src,3);
+			result.GetAlpha()[dst]=source.GetAlpha()[src];
+		}
+	return result;
 }
 
 // Produce genuine small, palettizable Spellcross graphics from large artwork.
