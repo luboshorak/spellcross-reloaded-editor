@@ -10,6 +10,9 @@
 // Used by the artwork conversion and FSU export method declarations.
 #include <filesystem>
 #include <string>
+#include <map>
+#include <vector>
+#include <cstdint>
 
 // <wxFormsBuilder-include> - Section auto-inserted from 'forms.h' class 'FormUnitsEdit' on 2026-10-12 19:24:03
 #include <wx/artprov.h>
@@ -85,6 +88,8 @@ class FormUnitsEdit : public wxFrame
 		void GenerateGameSpritesFromSource(const std::filesystem::path& source);
 		void BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
 			const std::filesystem::path& output, const std::string& group);
+		// New graphics embedded into COMMON.FS when the mod is exported.
+		std::map<std::string, std::vector<uint8_t>> m_custom_icon_lz;
 		void OnExportUnitMod(wxCommandEvent& event);
 
 		wxString OnGetUnitName(long item);
