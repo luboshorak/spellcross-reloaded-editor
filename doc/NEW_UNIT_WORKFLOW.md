@@ -33,12 +33,13 @@ embedded into the editor.
    magnification. The editor computes a **shared crop/scale across all
    angles**, produces 8 game-scale images, and previews each angle.
    Neither model nor textures are modified.
-   The **Improve game sprite brightness and fine detail** checkbox is enabled
-   by default: the editor lifts dark midtones, mildly boosts saturation and
-   applies alpha-safe edge sharpening **after downscaling and before**
-   the fixed `UNITS.PAL` quantization. Disable it to compare with the
-   untreated render. Blender also uses broad scale-aware lighting, four
-   area lights, ambient fill and slightly higher exposure.
+   The **Enhance fine details** checkbox is enabled by default. It now
+   applies only restrained shadow correction and mild alpha-safe edge
+   sharpening **after downscaling and before** the fixed `UNITS.PAL`
+   quantization; no global exposure boost is applied. Blender lighting
+   is intentionally restrained to avoid bleaching model textures.
+   **3D lighting intensity (%)** controls the light rig between 25% and
+   200% without editing source code; start at 100%, lower if too bright.
 7. Select **Build game graphics**, choose a fresh output folder, and the
    editor encodes the directions as `A00–A07` and `F00–F07` using the
    original `UNITS.PAL` and merges them into a modded `UNITS.FSU`.
