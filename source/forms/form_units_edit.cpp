@@ -2316,10 +2316,6 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	groundStyle->SetSelection(m_unit->isWalk()?1:0);
 	groundStyle->Enable(unitMode->GetSelection()==1);
 	grid->Add(groundStyle,1,wxEXPAND);
-	unitMode->Bind(wxEVT_CHOICE,[&](wxCommandEvent&)
-	{
-		groundStyle->Enable(unitMode->GetSelection()==1);
-	});
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Max object size (pixels):"),0,wxALIGN_CENTER_VERTICAL);
 	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,32,160,96);
@@ -2351,7 +2347,9 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	grid->Add(contactOffset,1,wxEXPAND);
 	unitMode->Bind(wxEVT_CHOICE,[&](wxCommandEvent&)
 	{
-		contactOffset->Enable(unitMode->GetSelection()==1);
+		const bool groundSelected=unitMode->GetSelection()==1;
+		groundStyle->Enable(groundSelected);
+		contactOffset->Enable(groundSelected);
 	});
 	grid->Add(new wxStaticText(&options,wxID_ANY,"3D lighting intensity (%):"),0,wxALIGN_CENTER_VERTICAL);
 	auto lightingField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
