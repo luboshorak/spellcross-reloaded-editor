@@ -1636,7 +1636,7 @@ struct GroundSpriteSize {
 	int height;
 };
 static GroundSpriteSize GetGroundSpriteSize(const FSU_resource* reference,
-	bool walker, int sizeLimit)
+	bool walker, int sizeLimit, int scalePercent)
 {
 	int refWidth=0, refHeight=0;
 	if(reference)
@@ -1657,15 +1657,19 @@ static GroundSpriteSize GetGroundSpriteSize(const FSU_resource* reference,
 				if(!az.empty())
 					measure(az[0]);
 	}
-	int width=walker?34:72;
-	int height=walker?56:56;
-	if(refWidth>0 && refHeight>0)
-	{
-		width=std::clamp(refWidth,walker?26:56,walker?46:78);
-		height=std::clamp(refHeight,walker?36:38,walker?76:74);
-	}
-	width=std::min(width,std::min(80,sizeLimit));
-	height=std::min(height,std::max(32,sizeLimit));
+	// Respect the original sprite's *actual* occupied dimensions. The old
+	// 56..78px horizontal / 38..74px vertical clamps silently miniaturized
+	// almost every imported vehicle, even with Max object size set to 160.
+	const int baseWidth=refWidth>0?refWidth:(walker?34:72);
+	const int baseHeight=refHeight>0?refHeight:56;
+	const double scale=std::clamp(scalePercent,50,200)/100.0;
+	// FSU line offsets are unsigned and referenced to map X=40; a centered
+	// sprite wider than 80px would wrap to a huge positive offset. Keep the
+	// occupied WIDTH in one map cell, but do not restrict upright HEIGHT to 48.
+	const int width=std::clamp(static_cast<int>(std::lround(baseWidth*scale)),
+		1,std::min(80,sizeLimit));
+	const int height=std::clamp(static_cast<int>(std::lround(baseHeight*scale)),
+		1,sizeLimit);
 	return {width,height};
 }
 
@@ -1761,7 +1765,8 @@ static wxImage AdaptGroundFrameToSlope(const wxImage& source,int slope)
 // usable static eight-azimuth preview. It is not 3D reconstruction.
 static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 	int targetSize, bool eraseBackground, int tolerance, bool eightDirections,
-	bool groundUnit, bool groundWalker, const FSU_resource* reference, int sourceHeading)
+	bool groundUnit, bool groundWalker, const FSU_resource* reference,
+	int sourceHeading, int groundScalePercent)
 {
 	if(!image.IsOk() || image.GetWidth() < 2 || image.GetHeight() < 2)
 		throw std::runtime_error("Invalid source image.");
@@ -1879,9 +1884,9 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 	// and tanks can extend ABOVE the cell; use the cloned unit's dimensions.
 	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
 	const int canvasH=groundUnit?96:static_cast<int>(std::ceil(targetSize*1.5));
-	const auto dims=GetGroundSpriteSize(reference,groundWalker,targetSize);
-	// Flat PNG rotations need diagonal headroom; genuine 3D views do not.
-	const int imageMaxW=groundUnit?std::min(dims.width,56):targetSize;
+	const auto dims=GetGroundSpriteSize(reference,groundWalker,targetSize,groundScalePercent);
+	// Ground controls must not shrink the artwork back to 56px after scaling.
+	const int imageMaxW=groundUnit?dims.width:targetSize;
 	const int imageMaxH=groundUnit?dims.height:targetSize;
 	const double scale=std::min({1.0,
 		static_cast<double>(imageMaxW)/image.GetWidth(),
@@ -2105,7 +2110,7 @@ static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
 // Per-frame auto-crop would make the aircraft grow/shrink as it turns.
 static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& raw,
 	int targetSize, bool groundUnit, bool groundWalker,
-	const FSU_resource* reference)
+	const FSU_resource* reference, int groundScalePercent)
 {
 	if(raw.empty() || !raw[0].IsOk() || !raw[0].HasAlpha())
 		throw std::runtime_error("The model renderer produced no usable frames.");
@@ -2133,7 +2138,8 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 	xMax=std::min(sourceW-1,xMax+margin);
 	yMax=std::min(sourceH-1,yMax+margin);
 	const int cropW=xMax-xMin+1, cropH=yMax-yMin+1;
-	const auto groundDimensions=GetGroundSpriteSize(reference,groundWalker,targetSize);
+	const auto groundDimensions=GetGroundSpriteSize(reference,groundWalker,
+		targetSize,groundScalePercent);
 	const int maxW=groundUnit?groundDimensions.width:targetSize;
 	const int maxH=groundUnit?groundDimensions.height:targetSize;
 	const double scale=std::min({static_cast<double>(maxW)/cropW,
@@ -2141,7 +2147,8 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 	const int outW=std::max(1,static_cast<int>(std::round(cropW*scale)));
 	const int outH=std::max(1,static_cast<int>(std::round(cropH*scale)));
 	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
-	const int canvasH=groundUnit?96:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasH=groundUnit?std::max(96,groundDimensions.height+8)
+		:static_cast<int>(std::ceil(targetSize*1.5));
 	std::vector<wxImage> result;
 	result.reserve(raw.size());
 	for(const auto& source:raw)
@@ -2318,8 +2325,14 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	grid->Add(groundStyle,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Max object size (pixels):"),0,wxALIGN_CENTER_VERTICAL);
 	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
-		wxSP_ARROW_KEYS,32,160,96);
+		wxSP_ARROW_KEYS,32,160,m_unit->isAir()?96:144);
 	grid->Add(sizeField,1,wxEXPAND);
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Ground sprite scale (%):"),
+		0,wxALIGN_CENTER_VERTICAL);
+	auto groundScaleField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
+		wxDefaultSize,wxSP_ARROW_KEYS,50,200,125);
+	groundScaleField->Enable(unitMode->GetSelection()==1);
+	grid->Add(groundScaleField,1,wxEXPAND);
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Facing directions:"),0,wxALIGN_CENTER_VERTICAL);
 	wxArrayString modes;
 	modes.Add(model3D ? "Native 3D directions (8 air / 16 ground)" : "8 reference-guided 2D rotations");
@@ -2349,6 +2362,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	{
 		const bool groundSelected=unitMode->GetSelection()==1;
 		groundStyle->Enable(groundSelected);
+		groundScaleField->Enable(groundSelected);
 		contactOffset->Enable(groundSelected);
 	});
 	grid->Add(new wxStaticText(&options,wxID_ANY,"3D lighting intensity (%):"),0,wxALIGN_CENTER_VERTICAL);
@@ -2418,7 +2432,8 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			for(auto& img:walkingRaw)
 				renders.push_back(std::move(img));
 			auto converted=FitRenderedModelFrames(renders,sizeField->GetValue(),
-				unitMode->GetSelection()==1,groundStyle->GetSelection()==1,m_unit->gr_base);
+				unitMode->GetSelection()==1,groundStyle->GetSelection()==1,m_unit->gr_base,
+				groundScaleField->GetValue());
 			for(size_t i=0;i<converted.size();++i)
 				if(i<staticCount)
 					frames.push_back(std::move(converted[i]));
@@ -2432,7 +2447,8 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
 				backgroundField->GetValue(),toleranceField->GetValue(),
 				rotationField->GetSelection()==0,unitMode->GetSelection()==1,
-				groundStyle->GetSelection()==1,m_unit->gr_base,sourceHeadingField->GetSelection());
+				groundStyle->GetSelection()==1,m_unit->gr_base,
+				sourceHeadingField->GetSelection(),groundScaleField->GetValue());
 		}
 		// Improve readability for the low-resolution indexed game palette.
 		// Applied to both 3D and legacy PNG input, not to the original file.
