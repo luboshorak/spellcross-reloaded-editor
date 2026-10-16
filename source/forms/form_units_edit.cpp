@@ -1591,7 +1591,8 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 // For top-down subjects (e.g. aircraft), rotating the cut-out generates a
 // usable static eight-azimuth preview. It is not 3D reconstruction.
 static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
-	int targetSize, bool eraseBackground, int tolerance, bool eightDirections)
+	int targetSize, bool eraseBackground, int tolerance, bool eightDirections,
+	bool groundUnit, const FSU_resource* reference, int sourceHeading)
 {
 	if(!image.IsOk() || image.GetWidth() < 2 || image.GetHeight() < 2)
 		throw std::runtime_error("Invalid source image.");
@@ -1705,44 +1706,100 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 	ymax=std::min(height-1,ymax+padding);
 	image=image.GetSubImage(wxRect(xmin,ymin,xmax-xmin+1,ymax-ymin+1));
 
-	// Typical game-scale image. Preserve aspect ratio and don't upscale small art.
+	// The tactical map uses 80-pixel-wide tiles. Ground units must remain
+	// inside one projected tile, rather than on a 96+ pixel square canvas.
+	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasH=groundUnit?48:static_cast<int>(std::ceil(targetSize*1.5));
+	const int imageMax=groundUnit?std::min(targetSize,40):targetSize;
 	const double scale=std::min({1.0,
-		static_cast<double>(targetSize)/image.GetWidth(),
-		static_cast<double>(targetSize)/image.GetHeight()});
+		static_cast<double>(imageMax)/image.GetWidth(),
+		static_cast<double>(imageMax)/image.GetHeight()});
 	const int newWidth=std::max(1,static_cast<int>(std::lround(image.GetWidth()*scale)));
 	const int newHeight=std::max(1,static_cast<int>(std::lround(image.GetHeight()*scale)));
 	if(newWidth!=image.GetWidth() || newHeight!=image.GetHeight())
 		image.Rescale(newWidth,newHeight,wxIMAGE_QUALITY_BICUBIC);
 
-	// Uniform transparent canvas, centered at FSU sprite origin. Enough margin
-	// for a 45-degree rotation of a targetSize-wide object.
-	const int side=static_cast<int>(std::ceil(targetSize*1.5));
 	const int variants=eightDirections?8:1;
 	std::vector<wxImage> frames;
 	frames.reserve(variants);
+
+	// Measure the silhouettes of the cloned unit's real FSU azimuths. Those
+	// images already use Spellcross's viewing angle / reference origin.
+	// We cannot reconstruct unseen 3D surfaces from one picture, but
+	// matching its directional footprint avoids a simple spinning cut-out.
+	std::array<double,8> widthFactor, heightFactor;
+	std::array<double,8> offsetX, offsetY;
+	widthFactor.fill(1.0);
+	heightFactor.fill(1.0);
+	offsetX.fill(0.0);
+	offsetY.fill(0.0);
+	std::array<const FSU_sprite*,8> sample{};
+	if(reference)
+	{
+		for(int heading=0;heading<8;++heading)
+		{
+			if(reference->stat.azimuths>0 && !reference->stat.lists[0].empty())
+			{
+				const auto& stat=reference->stat.lists[0];
+				sample[heading]=stat[std::min(static_cast<size_t>(
+					std::lround(heading*reference->stat.azimuths/8.0))%stat.size(),stat.size()-1)];
+			}
+			else if(reference->anim.azimuths>0 && !reference->anim.lists.empty())
+			{
+				const auto index=static_cast<size_t>(
+					std::lround(heading*reference->anim.azimuths/8.0))%reference->anim.lists.size();
+				if(!reference->anim.lists[index].empty())
+					sample[heading]=reference->anim.lists[index][0];
+			}
+		}
+		const auto baseline=sample[0];
+		if(baseline && baseline->x_max>baseline->x_min && baseline->y_size>0)
+		{
+			const double refW=baseline->x_max-baseline->x_min;
+			const double refH=baseline->y_size;
+			const double cx0=(baseline->x_min+baseline->x_max)/2.0;
+			const double cy0=baseline->y_ofs+baseline->y_size/2.0;
+			for(int heading=0;heading<8;++heading)
+			{
+				const auto* sprite=sample[heading];
+				if(!sprite || sprite->x_max<=sprite->x_min || sprite->y_size<=0)
+					continue;
+				widthFactor[heading]=std::clamp((sprite->x_max-sprite->x_min)/refW,0.55,1.35);
+				heightFactor[heading]=std::clamp(sprite->y_size/refH,0.55,1.35);
+				offsetX[heading]=std::clamp((sprite->x_min+sprite->x_max)/2.0-cx0,-16.0,16.0);
+				offsetY[heading]=std::clamp(sprite->y_ofs+sprite->y_size/2.0-cy0,-12.0,12.0);
+			}
+		}
+	}
+
 	for(int heading=0;heading<variants;++heading)
 	{
-		wxImage frame(side,side);
+		wxImage frame(canvasW,canvasH);
 		frame.InitAlpha();
-		std::memset(frame.GetData(),0,static_cast<size_t>(side)*side*3);
-		std::memset(frame.GetAlpha(),0,static_cast<size_t>(side)*side);
-		const double angle=(heading*3.14159265358979323846/4.0);
-		const double sn=std::sin(angle);
-		const double cs=std::cos(angle);
+		std::memset(frame.GetData(),0,static_cast<size_t>(canvasW)*canvasH*3);
+		std::memset(frame.GetAlpha(),0,static_cast<size_t>(canvasW)*canvasH);
+		// FSU azimuth order follows the original unit; sourceHeading defines
+		// which direction the source image currently points to.
+		const int az=(heading-sourceHeading+8)%8;
+		const double angle=(eightDirections?az:0)*3.14159265358979323846/4.0;
+		const double sn=std::sin(angle), cs=std::cos(angle);
 		const double cx=(image.GetWidth()-1)/2.0;
 		const double cy=(image.GetHeight()-1)/2.0;
-		for(int y=0;y<side;++y)
+		const double warpX=widthFactor[heading], warpY=heightFactor[heading];
+		const double shiftX=offsetX[heading];
+		const double shiftY=offsetY[heading];
+		for(int y=0;y<canvasH;++y)
 		{
-			const double dy=y-(side-1)/2.0;
-			for(int x=0;x<side;++x)
+			const double dy=(y-(canvasH-1)/2.0-shiftY)/warpY;
+			for(int x=0;x<canvasW;++x)
 			{
-				const double dx=x-(side-1)/2.0;
+				const double dx=(x-(canvasW-1)/2.0-shiftX)/warpX;
 				const int sx=static_cast<int>(std::lround(cx+dx*cs+dy*sn));
 				const int sy=static_cast<int>(std::lround(cy-dx*sn+dy*cs));
 				if(sx<0 || sy<0 || sx>=image.GetWidth() || sy>=image.GetHeight())
 					continue;
 				const size_t src=static_cast<size_t>(sy)*image.GetWidth()+sx;
-				const size_t dst=static_cast<size_t>(y)*side+x;
+				const size_t dst=static_cast<size_t>(y)*canvasW+x;
 				std::memcpy(frame.GetData()+3*dst,image.GetData()+3*src,3);
 				frame.GetAlpha()[dst]=image.GetAlpha()[src];
 			}
