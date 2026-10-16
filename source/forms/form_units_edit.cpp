@@ -2670,6 +2670,19 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 	unit->icon_glyph = nullptr;
 	unit->info.clear();
 	unit->info_imgs.clear();
+	// Do not keep the source unit's secondary visuals or action sprites.
+	unit->grb.clear();
+	unit->gr_aux = nullptr;
+	unit->anim_atack_light_name.clear();
+	unit->anim_atack_armor_name.clear();
+	unit->anim_atack_air_name.clear();
+	unit->gr_attack_light = nullptr;
+	unit->gr_attack_armor = nullptr;
+	unit->gr_attack_air = nullptr;
+	unit->action_fsu_name.clear();
+	unit->gr_action = nullptr;
+	unit->die_anim_name.clear();
+	unit->gr_die = nullptr;
 
 	// Refresh the virtual list and select the newly created record.
 	wxCommandEvent refresh(wxEVT_COMMAND_LISTBOX_SELECTED, wxID_LBOX_DEFS);
