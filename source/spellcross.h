@@ -102,6 +102,7 @@ public:
 	// units graphics (FSU)
 	FSUarchive *units_fsu;
 	std::filesystem::path common_fs_source_path;
+	std::filesystem::path info_fs_source_path;
 	// Exact archive selected by Reload; used to build safe mod copies.
 	std::filesystem::path units_fsu_source_path;
 	// units
