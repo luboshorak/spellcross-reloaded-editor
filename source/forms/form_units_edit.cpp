@@ -2436,6 +2436,10 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 					m_unit->utype=(m_unit->utype & ~SpellUnitRec::UTYPE_TYPE_MASK)
 						| SpellUnitRec::UTYPE_TYPE_ARMORED;
 				m_unit->utype &= ~SpellUnitRec::UTYPE_FLY;
+				// Synchronize the Basic / movement properties with the updated
+				// ground class before the unit is registered for map placement.
+				wxCommandEvent refreshProperties;
+				OnSelectUnit(refreshProperties);
 			}
 			if(!CreateUnitIcon(frames[0],group))
 				wxMessageBox("FSU built, but custom unit icon could not be created.",
