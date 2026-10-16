@@ -1882,9 +1882,10 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 
 	// Ground sprites must fit the map cell horizontally, but upright figures
 	// and tanks can extend ABOVE the cell; use the cloned unit's dimensions.
-	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
-	const int canvasH=groundUnit?96:static_cast<int>(std::ceil(targetSize*1.5));
 	const auto dims=GetGroundSpriteSize(reference,groundWalker,targetSize,groundScalePercent);
+	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasH=groundUnit?std::max(96,dims.height+12)
+		:static_cast<int>(std::ceil(targetSize*1.5));
 	// Ground controls must not shrink the artwork back to 56px after scaling.
 	const int imageMaxW=groundUnit?dims.width:targetSize;
 	const int imageMaxH=groundUnit?dims.height:targetSize;
@@ -2327,7 +2328,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	auto sizeField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,wxDefaultSize,
 		wxSP_ARROW_KEYS,32,160,m_unit->isAir()?96:144);
 	grid->Add(sizeField,1,wxEXPAND);
-	grid->Add(new wxStaticText(&options,wxID_ANY,"Ground sprite scale (%):"),
+	grid->Add(new wxStaticText(&options,wxID_ANY,"Ground size relative to template (%):"),
 		0,wxALIGN_CENTER_VERTICAL);
 	auto groundScaleField=new wxSpinCtrl(&options,wxID_ANY,"",wxDefaultPosition,
 		wxDefaultSize,wxSP_ARROW_KEYS,50,200,125);
