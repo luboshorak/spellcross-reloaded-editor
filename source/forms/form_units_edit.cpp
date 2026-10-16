@@ -2400,18 +2400,32 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	}
 
 	std::vector<wxImage> frames;
+	std::vector<wxImage> walkingFrames;
 	wxImage original; // also needed later for INFO.FS artwork generation
 	try
 	{
 		if(model3D)
 		{
+			const bool animateWalk=unitMode->GetSelection()==1 &&
+				groundStyle->GetSelection()==1 && rotationField->GetSelection()==0;
+			std::vector<wxImage> walkingRaw;
 			auto renders=RenderModelWithBlender(this,source,
 				rotationField->GetSelection()==0?(unitMode->GetSelection()==1?16:8):1,
 				cameraElevation->GetValue(),sourceHeadingField->GetSelection(),
-				lightingField->GetValue());
+				lightingField->GetValue(),animateWalk?&walkingRaw:nullptr);
 			original=renders.front().Copy(); // info-portrait source: actual 3D render
-			frames=FitRenderedModelFrames(renders,sizeField->GetValue(),
+			const auto staticCount=renders.size();
+			// Quantize/downscale movement and standing frames with exactly one
+			// scale/crop so an animated 3D unit does not change size mid-stride.
+			for(auto& img:walkingRaw)
+				renders.push_back(std::move(img));
+			auto converted=FitRenderedModelFrames(renders,sizeField->GetValue(),
 				unitMode->GetSelection()==1,groundStyle->GetSelection()==1,m_unit->gr_base);
+			for(size_t i=0;i<converted.size();++i)
+				if(i<staticCount)
+					frames.push_back(std::move(converted[i]));
+				else
+					walkingFrames.push_back(std::move(converted[i]));
 		}
 		else
 		{
@@ -2425,8 +2439,12 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		// Improve readability for the low-resolution indexed game palette.
 		// Applied to both 3D and legacy PNG input, not to the original file.
 		if(enhanceField->GetValue())
+		{
 			for(auto& sprite:frames)
 				EnhanceGameSprite(sprite);
+			for(auto& sprite:walkingFrames)
+				EnhanceGameSprite(sprite);
+		}
 		// The original game indexes 8 air headings, but 16 ground headings.
 		// Legacy PNG generates only 8 angles; repeat each for both 22.5deg
 		// ground azimuth slots, without changing the air-unit behavior.
@@ -2567,14 +2585,17 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		else
 		{
 			// Infantry/creatures: 10 walking poses×8 headings followed by
-			// 16 standing headings = 96 native FSU records.
-			// Static meshes initially reuse the standing pose; genuine animated
-			// models can provide distinct movement poses in a later extension.
+			// 16 standing headings = 96 native FSU records. Animated glTF/FBX
+			// clips provide real motion, otherwise use safe static fallback.
+			if(!walkingFrames.empty() && walkingFrames.size()!=80)
+				throw std::runtime_error("Invalid 3D walking animation frame count.");
 			for(int pose=0;pose<10;++pose)
 				for(int direction=0;direction<8;++direction)
 				{
 					const auto code=wxString::Format("0%X%X",pose,direction*2).ToStdString();
-					saveSprite(frames[direction*2],code,0,direction*2);
+					const auto& frame=walkingFrames.empty()
+						?frames[direction*2]:walkingFrames[pose*8+direction];
+					saveSprite(frame,code,0,direction*2);
 				}
 			for(int direction=0;direction<16;++direction)
 				saveSprite(frames[direction],
