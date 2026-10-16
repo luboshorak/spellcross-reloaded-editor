@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--views', type=int, choices=[1,8], default=8)
+    parser.add_argument('--views', type=int, choices=[1,8,16], default=8)
     parser.add_argument('--resolution', type=int, default=1024)
     parser.add_argument('--elevation', type=float, default=40.0)
     parser.add_argument('--heading', type=float, default=0.0)
@@ -133,7 +133,7 @@ def render_views(args):
     light(scene,'Spellcross Side',center,(-2.4,1.2,2.2),radius,35*strength)
     elevation = math.radians(args.elevation)
     for index in range(args.views):
-        az = math.radians(args.heading + index * 45)
+        az = math.radians(args.heading + index * (360.0 / args.views if args.views > 1 else 0.0))
         direction = Vector((math.sin(az)*math.cos(elevation),
                             -math.cos(az)*math.cos(elevation),
                             math.sin(elevation)))
