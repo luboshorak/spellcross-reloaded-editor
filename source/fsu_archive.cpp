@@ -149,7 +149,7 @@ int FSUarchive::LoadFolder(std::filesystem::path dir, std::string wild_filter)
 			spr->name = sprite_name;
 			if(loaddata(sprite_path, spr->data))
 			{
-				delete spr;
+				// spr is an element of unit->list, not heap-allocated.
 				delete unit;				
 				m_last_error = string_format("Loading FSU archive from folder (%ls) failed! Unit folder (%s) contains sprite (%s) that cannot be read?",path.wstring().c_str(),name.c_str(),sprite_name.c_str());
 				return(1);
@@ -177,6 +177,27 @@ int FSUarchive::AddResource(FSU_resource* res,bool allow_replace,std::string new
 	if(old_res && !allow_replace)
 		return(1);	
 	auto res_copy = new FSU_resource(*res);
+	// FSU_resource contains pointers into its own sprite vector. A raw copy
+	// leaves stat/animation tables pointing into the source archive, which may
+	// be destroyed immediately after importing a mod resource.
+	auto rebase = [&](FSU_sprite*& sprite)
+	{
+		if(!sprite)
+			return;
+		for(size_t i = 0; i < res->list.size(); ++i)
+			if(sprite == &res->list[i])
+			{
+				sprite = &res_copy->list[i];
+				return;
+			}
+		sprite = nullptr;
+	};
+	for(auto& slope : res_copy->stat.lists)
+		for(auto& sprite : slope)
+			rebase(sprite);
+	for(auto& azimuth : res_copy->anim.lists)
+		for(auto& sprite : azimuth)
+			rebase(sprite);
 	if(!new_name.empty())
 	{
 		if(new_name.length() > 5)
