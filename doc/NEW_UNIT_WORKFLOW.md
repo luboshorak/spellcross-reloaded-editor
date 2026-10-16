@@ -24,8 +24,10 @@ embedded into the editor.
 4. Pick a unique FSU graphics group (1–5 uppercase letters/digits).
    Choose **Air** for aircraft that may extend beyond one map tile,
    **Ground** for vehicles or infantry occupying one 80-pixel-wide map
-   tile. Their sprite art may rise above the tile surface: the original
-   48px height cap was incorrect.
+   tile. Ground mode now offers **Vehicle (208 sprites)**, using 16 azimuths
+   across all 13 original terrain slopes, and **Walker (96 sprites)**,
+   using 16 standing directions plus 10 movement poses across 8 headings.
+   Upright sprites may extend above the 48px terrain diamond.
 5. Set **3D camera elevation**, initially 65° for aircraft or 35° for
    ground units. Select the model's forward direction with **Source image
    points toward**. The default assumes forward is negative Y in the
@@ -35,15 +37,21 @@ embedded into the editor.
    magnification. The editor computes a **shared crop/scale across all
    angles**, produces 8 game-scale images, and previews each angle.
    Neither model nor textures are modified.
-   Ground rendering uses the **template unit's visible FSU sprite size**
-   (tank vs. walking infantry) rather than the former hardcoded 40×28px
-   limit. The lowest opaque pixel is anchored to the terrain origin in
-   each direction, so transparent borders cannot lift the unit above the
-   map. When Ground is selected on an aircraft template, its game unit
-   classification also switches from Air to Armored Ground. The Flight
-   flag is cleared, as is the separate Turret flag (the 3D render includes
-   the turret in its main sprite and exports no independent turret layer).
-   Preserve Light/Armored and Walk flags for an already-ground template.\n
+   Ground rendering matches the **template unit's visible FSU size and
+   slope-specific vertical offsets** instead of cropping against an 80×48
+   canvas. The original map draws vehicles relative to the terrain
+   sprite's own vertical offset; ground-plane contact is typically about
+   32px below the FSU origin, not at pixel 128. The converter matches
+   the reference sprite's last occupied row, with an optional **Ground
+   contact adjustment (px)** for unusual models (+ moves down).
+   For vehicles it also generates incline-dependent body skew variants.
+   This is an approximation of suspension pitch/roll, not fully
+   physics-driven articulation.
+
+   When Ground is selected on an aircraft template, game class switches
+   to Armored Ground and Flight is cleared. Walker mode uses Light/Walk;
+   Vehicle mode clears Walk. A full-model render contains the turret in
+   the main image, so the obsolete separate Turret flag is cleared.\n
    The **Enhance fine details** checkbox is enabled by default. It now
    applies only restrained shadow correction and mild alpha-safe edge
    sharpening **after downscaling and before** the fixed `UNITS.PAL`
@@ -51,9 +59,16 @@ embedded into the editor.
    is intentionally restrained to avoid bleaching model textures.
    **3D lighting intensity (%)** controls the light rig between 25% and
    200% without editing source code; start at 100%, lower if too bright.
-7. Select **Build game graphics**, choose a fresh output folder, and the
-   editor encodes the directions as `A00–A07` and `F00–F07` using the
-   original `UNITS.PAL` and merges them into a modded `UNITS.FSU`.
+7. Select **Build game graphics**, choose a fresh output folder, and
+   the editor encodes the original `UNITS.PAL` and exports a modded
+   `UNITS.FSU`. Aircraft retain the proven `A00–A07` / `F00–F07`
+   layout. Ground vehicles use `000–C0F` (208 unique slope/heading
+   slots). Walkers use `000,002,…,09E` (80 movement slots) and
+   `F00–F0F` (16 standing slots). On an animated glTF/FBX model,
+   Blender renders ten actual movement poses at eight camera angles;
+   static models safely reuse the standing pose for movement until an
+   animated asset is supplied. The editor verifies these frame tables
+   when decoding the temporary FSU before mod archive export.
 8. The editor automatically generates a dedicated `I_<group>.LZ` unit
    icon for `COMMON.FS`, plus separate `N<group>.LZ` info artwork and a
    192-color `N<group>.PAL` for `INFO.FS`. These no longer come from
@@ -63,10 +78,12 @@ embedded into the editor.
    and INFO resources into mod archive copies.
 
 The renderer uses actual Blender camera rotation and fixed camera scale.
-It does not use one PNG rotated eight times. If the model includes animations,
-the current version renders a single chosen frame for all headings;
-walking/firing/dying sequences are not automatically imported yet.
-Material support is subject to Blender's glTF/FBX importers.
+It does not rotate one PNG into eight faked 3D perspectives. For Walker
+units, any model with Blender-imported Actions is additionally sampled
+for ten movement poses; otherwise its movement slots use static frames.
+Separate firing, death and vehicle suspension animations are not
+imported yet. Material and rig support are subject to Blender's
+glTF/FBX importers.
 
 ## Legacy PNG import (optional)
 
