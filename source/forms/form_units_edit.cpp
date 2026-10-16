@@ -1628,12 +1628,77 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 }
 
 
+// Spellcross ground sprites do not have to fit inside a 48-pixel-tall
+// rectangle. A map cell is 80px wide, but people/vehicles stand ABOVE its
+// ground plane. Match a ground template's visible dimensions if available.
+struct GroundSpriteSize {
+	int width;
+	int height;
+};
+static GroundSpriteSize GetGroundSpriteSize(const FSU_resource* reference,
+	bool walker, int sizeLimit)
+{
+	int refWidth=0, refHeight=0;
+	if(reference)
+	{
+		auto measure=[&](const FSU_sprite* sprite)
+		{
+			if(!sprite || sprite->y_size<=0 || sprite->x_max<=sprite->x_min)
+				return;
+			refWidth=std::max(refWidth,sprite->x_max-sprite->x_min);
+			refHeight=std::max(refHeight,sprite->y_size);
+		};
+		// First slope or first animation frame across the available azimuths.
+		if(!reference->stat.lists[0].empty())
+			for(auto* sprite:reference->stat.lists[0])
+				measure(sprite);
+		else
+			for(const auto& az:reference->anim.lists)
+				if(!az.empty())
+					measure(az[0]);
+	}
+	int width=walker?34:72;
+	int height=walker?56:56;
+	if(refWidth>0 && refHeight>0)
+	{
+		width=std::clamp(refWidth,walker?26:56,walker?46:78);
+		height=std::clamp(refHeight,walker?36:38,walker?76:74);
+	}
+	width=std::min(width,std::min(80,sizeLimit));
+	height=std::min(height,std::max(32,sizeLimit));
+	return {width,height};
+}
+
+// Last actually rendered opaque row, not the bottom of a transparent PNG.
+// FSU's Y reference is 128. For ground units, this row MUST meet the
+// terrain origin, otherwise a 10+ pixel invisible margin makes them float.
+static int GroundFootOffset(const wxImage& sprite)
+{
+	if(!sprite.IsOk())
+		return 128;
+	const int width=sprite.GetWidth(), height=sprite.GetHeight();
+	int bottom=-1;
+	if(sprite.HasAlpha())
+	{
+		const auto* alpha=sprite.GetAlpha();
+		for(int y=0;y<height;++y)
+			for(int x=0;x<width;++x)
+				if(alpha[static_cast<size_t>(y)*width+x]>=128)
+					bottom=y;
+	}
+	else
+		bottom=height-1;
+	if(bottom<0)
+		throw std::runtime_error("Ground sprite has no opaque pixels after scaling.");
+	return 128-bottom-1;
+}
+
 // Produce genuine small, palettizable Spellcross graphics from large artwork.
 // For top-down subjects (e.g. aircraft), rotating the cut-out generates a
 // usable static eight-azimuth preview. It is not 3D reconstruction.
 static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 	int targetSize, bool eraseBackground, int tolerance, bool eightDirections,
-	bool groundUnit, const FSU_resource* reference, int sourceHeading)
+	bool groundUnit, bool groundWalker, const FSU_resource* reference, int sourceHeading)
 {
 	if(!image.IsOk() || image.GetWidth() < 2 || image.GetHeight() < 2)
 		throw std::runtime_error("Invalid source image.");
@@ -1747,14 +1812,17 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 	ymax=std::min(height-1,ymax+padding);
 	image=image.GetSubImage(wxRect(xmin,ymin,xmax-xmin+1,ymax-ymin+1));
 
-	// The tactical map uses 80-pixel-wide tiles. Ground units must remain
-	// inside one projected tile, rather than on a 96+ pixel square canvas.
+	// Ground sprites must fit the map cell horizontally, but upright figures
+	// and tanks can extend ABOVE the cell; use the cloned unit's dimensions.
 	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
-	const int canvasH=groundUnit?48:static_cast<int>(std::ceil(targetSize*1.5));
-	const int imageMax=groundUnit?std::min(targetSize,40):targetSize;
+	const int canvasH=groundUnit?96:static_cast<int>(std::ceil(targetSize*1.5));
+	const auto dims=GetGroundSpriteSize(reference,groundWalker,targetSize);
+	// Flat PNG rotations need diagonal headroom; genuine 3D views do not.
+	const int imageMaxW=groundUnit?std::min(dims.width,56):targetSize;
+	const int imageMaxH=groundUnit?dims.height:targetSize;
 	const double scale=std::min({1.0,
-		static_cast<double>(imageMax)/image.GetWidth(),
-		static_cast<double>(imageMax)/image.GetHeight()});
+		static_cast<double>(imageMaxW)/image.GetWidth(),
+		static_cast<double>(imageMaxH)/image.GetHeight()});
 	const int newWidth=std::max(1,static_cast<int>(std::lround(image.GetWidth()*scale)));
 	const int newHeight=std::max(1,static_cast<int>(std::lround(image.GetHeight()*scale)));
 	if(newWidth!=image.GetWidth() || newHeight!=image.GetHeight())
@@ -1952,7 +2020,8 @@ static std::vector<wxImage> RenderModelWithBlender(wxWindow* parent,
 // Maintain one common crop and scale for ALL 3D azimuths.
 // Per-frame auto-crop would make the aircraft grow/shrink as it turns.
 static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& raw,
-	int targetSize, bool groundUnit)
+	int targetSize, bool groundUnit, bool groundWalker,
+	const FSU_resource* reference)
 {
 	if(raw.empty() || !raw[0].IsOk() || !raw[0].HasAlpha())
 		throw std::runtime_error("The model renderer produced no usable frames.");
@@ -1980,14 +2049,15 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 	xMax=std::min(sourceW-1,xMax+margin);
 	yMax=std::min(sourceH-1,yMax+margin);
 	const int cropW=xMax-xMin+1, cropH=yMax-yMin+1;
-	const int maxW=groundUnit?40:targetSize;
-	const int maxH=groundUnit?28:targetSize;
+	const auto groundDimensions=GetGroundSpriteSize(reference,groundWalker,targetSize);
+	const int maxW=groundUnit?groundDimensions.width:targetSize;
+	const int maxH=groundUnit?groundDimensions.height:targetSize;
 	const double scale=std::min({static_cast<double>(maxW)/cropW,
 		static_cast<double>(maxH)/cropH,1.0});
 	const int outW=std::max(1,static_cast<int>(std::round(cropW*scale)));
 	const int outH=std::max(1,static_cast<int>(std::round(cropH*scale)));
 	const int canvasW=groundUnit?80:static_cast<int>(std::ceil(targetSize*1.5));
-	const int canvasH=groundUnit?48:static_cast<int>(std::ceil(targetSize*1.5));
+	const int canvasH=groundUnit?96:static_cast<int>(std::ceil(targetSize*1.5));
 	std::vector<wxImage> result;
 	result.reserve(raw.size());
 	for(const auto& source:raw)
@@ -1999,7 +2069,10 @@ static std::vector<wxImage> FitRenderedModelFrames(const std::vector<wxImage>& r
 		frame.InitAlpha();
 		std::memset(frame.GetData(),0,static_cast<size_t>(canvasW)*canvasH*3);
 		std::memset(frame.GetAlpha(),0,static_cast<size_t>(canvasW)*canvasH);
-		const int ox=(canvasW-outW)/2,oy=(canvasH-outH)/2;
+		// Keep the visible model near the ground line in the preview.
+		// The exact game attachment is based on the opaque pixel row below.
+		const int ox=(canvasW-outW)/2;
+		const int oy=groundUnit?canvasH-outH-2:(canvasH-outH)/2;
 		for(int y=0;y<outH;++y)
 			for(int x=0;x<outW;++x)
 			{
