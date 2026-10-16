@@ -28,6 +28,15 @@ embedded into the editor.
    across all 13 original terrain slopes, and **Walker (96 sprites)**,
    using 16 standing directions plus 10 movement poses across 8 headings.
    Upright sprites may extend above the 48px terrain diamond.
+   **Ground size relative to template (%)** now defaults to **125%**
+   and can be adjusted from 50% to 200%. The former hardcoded width/height
+   clamps have been removed: the imported 3D silhouette is scaled from the
+   original reference unit's actual occupied dimensions. **Max object size**
+   (default 144px for ground units) limits height and maximum sprite extent.
+   Horizontal size is still capped at 80px because the original FSU row
+   offsets are unsigned and centered at map X=40; going wider would wrap
+   the left edge and corrupt the sprite position. The transparent work
+   canvas grows in height when needed, rather than cropping tall models.
 5. Set **3D camera elevation**, initially 65° for aircraft or 35° for
    ground units. Select the model's forward direction with **Source image
    points toward**. The default assumes forward is negative Y in the
@@ -51,7 +60,8 @@ embedded into the editor.
    When Ground is selected on an aircraft template, game class switches
    to Armored Ground and Flight is cleared. Walker mode uses Light/Walk;
    Vehicle mode clears Walk. A full-model render contains the turret in
-   the main image, so the obsolete separate Turret flag is cleared.\n
+   the main image, so the obsolete separate Turret flag is cleared.
+
    The **Enhance fine details** checkbox is enabled by default. It now
    applies only restrained shadow correction and mild alpha-safe edge
    sharpening **after downscaling and before** the fixed `UNITS.PAL`
