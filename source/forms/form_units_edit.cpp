@@ -18,6 +18,7 @@
 #include <wx/filedlg.h>
 #include <wx/dirdlg.h>
 #include <wx/dragimag.h>
+#include <wx/textdlg.h>
 #include <wx/stattext.h>
 #include <wx/button.h>
 #include <wx/textctrl.h>
@@ -456,6 +457,9 @@ FormUnitsEdit::FormUnitsEdit( wxWindow* parent, wxWindowID id,SpellData *spell_d
 	auto testUnitButton = new wxButton(this, wxID_ANY, "Place / test on map...");
 	bSizer130->Add(testUnitButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
 	testUnitButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnTestUnitOnMap, this);
+	auto buildGraphicsButton = new wxButton(this, wxID_ANY, "Build PNG graphics / UNITS.FSU...");
+	bSizer130->Add(buildGraphicsButton, 0, wxLEFT|wxRIGHT|wxBOTTOM|wxEXPAND, 5);
+	buildGraphicsButton->Bind(wxEVT_BUTTON, &FormUnitsEdit::OnBuildUnitGraphics, this);
 	Layout();
 	
 	// set icon
@@ -1510,6 +1514,219 @@ void FormUnitsEdit::OnUnitEndDrag(wxMouseEvent& event)
 }
 
 
+
+
+
+// Import all PNG frames in a folder as a fresh FSU resource, merge that resource
+// into a copy of the currently loaded UNITS.FSU, then link it in-memory without
+// replacing existing resources referenced by units already placed on maps.
+void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
+{
+	if(!m_unit || !m_spell_data || !m_spell_data->units_fsu ||
+		m_spell_data->units_fsu_source_path.empty())
+	{
+		wxMessageBox("Select a unit and load the original game assets first.",
+			"Build unit graphics",wxOK|wxICON_INFORMATION,this);
+		return;
+	}
+
+	wxTextEntryDialog nameDialog(this,
+		"Enter a unique FSU group name (1-5 uppercase letters, digits or _):",
+		"New UNITS.FSU graphics group","U001");
+	if(nameDialog.ShowModal() != wxID_OK)
+		return;
+	std::string group = nameDialog.GetValue().ToStdString();
+	bool valid = !group.empty() && group.size() <= 5;
+	for(unsigned char ch : group)
+		valid = valid && ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_');
+	if(!valid)
+	{
+		wxMessageBox("Group name must be 1-5 characters: A-Z, 0-9 or _.",
+			"Build unit graphics",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+	if(m_spell_data->units_fsu->GetResource(group.c_str()))
+	{
+		wxMessageBox("This FSU group already exists. Choose a unique name; existing units must not be overwritten.",
+			"Build unit graphics",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+
+	wxDirDialog sourceDialog(this,"Select folder of PNG unit sprites (all directions/frames)",
+		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+	if(sourceDialog.ShowModal() != wxID_OK)
+		return;
+	std::filesystem::path source = sourceDialog.GetPath().ToStdWstring();
+	wxDirDialog outputDialog(this,"Select an export folder for modded UNITS.FSU",
+		m_spell_data->export_path,wxDD_DIR_MUST_EXIST);
+	if(outputDialog.ShowModal() != wxID_OK)
+		return;
+	std::filesystem::path output = outputDialog.GetPath().ToStdWstring();
+	m_spell_data->export_path = output.wstring();
+
+	const auto stage = output / ("spellcross_fsu_" + group);
+	const auto stage_group = stage / group;
+	const auto unitArchive = output / ("NEW_" + group + ".FSU");
+	const auto outputArchive = output / "UNITS.FSU";
+	if(std::filesystem::exists(stage) || std::filesystem::exists(unitArchive) ||
+		std::filesystem::exists(outputArchive))
+	{
+		wxMessageBox("Output already contains a generated file or working folder.\n"
+			"Choose an empty export folder. No existing files will be overwritten.",
+			"Build unit graphics",wxOK|wxICON_EXCLAMATION,this);
+		return;
+	}
+	if(std::filesystem::equivalent(source,m_spell_data->units_fsu_source_path.parent_path()))
+	{
+		// Legitimate source location, but only PNGs from this directory will be read.
+	}
+	auto* palette = m_spell_data->GetPalette("UNITS.PAL");
+	if(!palette)
+	{
+		wxMessageBox("The loaded game has no UNITS.PAL palette.","Build unit graphics",
+			wxOK|wxICON_ERROR,this);
+		return;
+	}
+
+	struct SourceSprite {
+		std::filesystem::path png;
+		std::string code;
+		SpellGresInfo meta;
+	};
+	std::vector<SourceSprite> sources;
+	try
+	{
+		for(auto& entry : std::filesystem::directory_iterator(source))
+		{
+			if(!entry.is_regular_file())
+				continue;
+			auto path = entry.path();
+			auto ext = path.extension().string();
+			for(char& ch : ext)
+				ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+			if(ext != ".png")
+				continue;
+
+			SpellGresInfo meta;
+			auto metaPath = path;
+			metaPath.replace_extension(L".info");
+			std::string code = path.stem().string();
+			if(std::filesystem::exists(metaPath))
+			{
+				if(meta.LoadInfo(metaPath) || !meta.isUnitsFSU() ||
+					meta.img_name != path.filename().string())
+				{
+					wxMessageBox("Incompatible metadata for " + wxString(path.filename().wstring()),
+						"Build unit graphics",wxOK|wxICON_ERROR,this);
+					return;
+				}
+				code = meta.name;
+			}
+			for(char& ch : code)
+				ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+			bool valid_code = code.size() == 3;
+			for(unsigned char ch : code)
+				valid_code = valid_code && ((ch >= 'A' && ch <= 'Z') ||
+					(ch >= '0' && ch <= '9') || ch == '_');
+			if(!valid_code)
+			{
+				wxMessageBox("Every PNG needs a three-character sprite code "
+					"(file name or matching .info):\n" + wxString(path.filename().wstring()),
+					"Build unit graphics",wxOK|wxICON_ERROR,this);
+				return;
+			}
+			for(const auto& other : sources)
+				if(other.code == code)
+				{
+					wxMessageBox("Duplicate FSU sprite code: " + wxString::FromUTF8(code.c_str()),
+						"Build unit graphics",wxOK|wxICON_ERROR,this);
+					return;
+				}
+			sources.push_back({path,code,meta});
+		}
+		if(sources.empty())
+		{
+			wxMessageBox("The source folder contains no PNG sprites.", "Build unit graphics",
+				wxOK|wxICON_EXCLAMATION,this);
+			return;
+		}
+		if(sources.size() > 255)
+		{
+			wxMessageBox("Too many sprites for one group.", "Build unit graphics",
+				wxOK|wxICON_ERROR,this);
+			return;
+		}
+
+		// Only after all inputs have been validated do we create export files.
+		std::filesystem::create_directories(stage_group);
+		for(const auto& item : sources)
+		{
+			wxBitmap bmp;
+			if(!bmp.LoadFile(wxString(item.png.wstring()),wxBITMAP_TYPE_PNG))
+				throw std::runtime_error("Failed loading PNG sprite: " + item.png.string());
+			SpellGraphicItem gres;
+			std::vector<ImgQuantize::Pixel> pixels;
+			int shadow_color[3] = {-1,-1,-1};
+			auto x_size = item.meta.isLoaded() ? item.meta.x_size : bmp.GetWidth();
+			auto y_size = item.meta.isLoaded() ? item.meta.y_size : bmp.GetHeight();
+			if(x_size <= 0 || y_size <= 0 || x_size > 4096 || y_size > 4096)
+				throw std::runtime_error("Invalid sprite dimensions");
+			const int threshold = item.meta.isLoaded() ? item.meta.alpha_threshold : 128;
+			const int x_ofs = item.meta.isLoaded() ? item.meta.x_offset : 0;
+			const int y_ofs = item.meta.isLoaded() ? item.meta.y_offset : 0;
+			auto resample = item.meta.isLoaded() ?
+				(wxImageResizeQuality)item.meta.resampling : wxIMAGE_QUALITY_NEAREST;
+			if(gres.Encode(bmp,pixels,false,item.code,palette,
+				1.0,0.0,0.0,x_size,y_size,resample,0,threshold,shadow_color,0xFD))
+				throw std::runtime_error("Unable to encode PNG sprite");
+			if(FSU_sprite::SaveSprite(stage_group / item.code,gres.pixels,gres.x_size,
+				x_ofs,y_ofs,0xFD))
+				throw std::runtime_error("Failed encoding FSU sprite " + item.code);
+		}
+
+		FSUarchive justNew;
+		if(justNew.LoadFolder(stage,group))
+			throw std::runtime_error(justNew.m_last_error);
+		if(justNew.Save(unitArchive))
+			throw std::runtime_error("Failed to create standalone FSU resource");
+
+		// Decode the small temporary archive only (not the entire game's FSU).
+		FSUarchive decoded(unitArchive.wstring());
+		auto* resource = decoded.GetResource(group.c_str());
+		if(!resource || (!resource->stat.azimuths && !resource->anim.azimuths))
+			throw std::runtime_error("Sprite naming does not form a valid FSU resource");
+
+		// Merge compressed, untouched original sprites with the new group.
+		FSUarchive merged(m_spell_data->units_fsu_source_path.wstring(),
+			FSUarchive::Options::NO_DECODE);
+		if(merged.LoadFolder(stage,group))
+			throw std::runtime_error(merged.m_last_error);
+		if(merged.Save(outputArchive))
+			throw std::runtime_error("Failed saving modded UNITS.FSU");
+
+		// Copy the decoded new resource into the live archive without replacing
+		// the archive or any existing FSU_resource pointers used on a map.
+		if(m_spell_data->units_fsu->AddResource(resource))
+			throw std::runtime_error("Failed registering new FSU resource in editor");
+		m_unit->gra = group;
+		m_unit->gr_base = m_spell_data->units_fsu->GetResource(group.c_str());
+
+		wxCommandEvent refresh;
+		OnSelectUnit(refresh);
+		SetStatusText("UNITS.FSU built and graphics linked to selected unit. Save DEF, then place/test on map.");
+		wxMessageBox("Graphics built successfully.\n\n"
+			"Modded UNITS.FSU: " + wxString(outputArchive.wstring()) +
+			"\n\nThe graphic group is now available in this editor session. "
+			"Save your JEDNOTKY.DEF and click Place / test on map.",
+			"Build unit graphics",wxOK|wxICON_INFORMATION,this);
+	}
+	catch(const std::exception& error)
+	{
+		wxMessageBox("Graphics build failed:\n" + wxString::FromUTF8(error.what()) +
+			"\n\nAny output already written is in the selected export folder.",
+			"Build unit graphics",wxOK|wxICON_ERROR,this);
+	}
+}
 
 
 // Register only the selected, newly appended DEF record. The SpellData linker
