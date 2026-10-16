@@ -63,11 +63,11 @@ template. The tool does not synthesize unseen camera angles from one image.
 4. The existing **Add unit** window opens with your new unit selected.
    Position and place it as usual; inspect its sprites and parameters.
 
-For safety this imports **new, sequential unit IDs only**: the selected
-record's ID must equal the next available ID in the live catalog.
-Overwriting an in-use unit ID could corrupt pointers held by map units, so
-the editor refuses it. To re-test after changing an already registered
-record, reload the editor's data and repeat the procedure.
+For safety this imports **new, sequential unit IDs only**. If several
+new units precede the selected unit, the editor registers the pending units
+in order. Overwriting an in-use unit ID could corrupt pointers held by map
+units, so the editor refuses it. To re-test after changing an already
+registered record, reload the editor's data and repeat the procedure.
 
 If the unit refers to an FSU group not loaded (or to missing icon/animation/
 sound resources), registration fails with a descriptive error instead of
