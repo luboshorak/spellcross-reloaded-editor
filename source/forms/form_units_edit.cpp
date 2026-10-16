@@ -2014,7 +2014,14 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 
 		// Only register the new icon after the graphics archive was built.
 		if(BuildUnitGraphicsFromFolder(spritesDir,output,group))
-			CreateUnitIcon(frames[0],group);
+		{
+			if(!CreateUnitIcon(frames[0],group))
+				wxMessageBox("FSU built, but custom unit icon could not be created.",
+					"Create unit graphics",wxOK|wxICON_EXCLAMATION,this);
+			if(!CreateUnitInfoArt(original,group))
+				wxMessageBox("FSU built, but INFO.FS artwork could not be created.",
+					"Create unit graphics",wxOK|wxICON_EXCLAMATION,this);
+		}
 	}
 	catch(const std::exception& error)
 	{
@@ -2132,6 +2139,97 @@ bool FormUnitsEdit::CreateUnitIcon(const wxImage& sprite,const std::string& grou
 	m_unit->icon_glyph=m_spell_data->gres.GetResource(iconStem.c_str());
 	canvasIcon->Refresh();
 	SetStatusText("Custom icon "+iconStem+" created. Export COMMON.FS to include it in the mod.");
+	return true;
+}
+
+// INFO.FS uses a separate per-unit 192-color palette and 437px wide
+// compressed art. Generate a distinct portrait instead of reusing the template.
+bool FormUnitsEdit::CreateUnitInfoArt(const wxImage& artwork,const std::string& group)
+{
+	if(!m_unit || !m_spell_data || !artwork.IsOk())
+		return false;
+	const std::string artStem="N"+group;
+	const std::string artFile=artStem+".LZ";
+	const std::string palFile=artStem+".PAL";
+	if(artStem.size()>8 || m_spell_data->gres_info.GetResource(artStem.c_str()) ||
+		m_spell_data->GetPalette(palFile))
+	{
+		wxMessageBox("An INFO.FS resource with this name already exists.",
+			"Custom unit artwork",wxOK|wxICON_ERROR,this);
+		return false;
+	}
+
+	constexpr int artW=437, artH=192;
+	wxImage canvas(artW,artH);
+	std::memset(canvas.GetData(),0,static_cast<size_t>(artW)*artH*3);
+	const double scale=std::min(static_cast<double>(artW-8)/artwork.GetWidth(),
+		static_cast<double>(artH-8)/artwork.GetHeight());
+	const int w=std::max(1,static_cast<int>(std::lround(artwork.GetWidth()*scale)));
+	const int h=std::max(1,static_cast<int>(std::lround(artwork.GetHeight()*scale)));
+	auto img=artwork.Copy();
+	img.Rescale(w,h,wxIMAGE_QUALITY_BICUBIC);
+	for(int y=0;y<h;++y)
+		for(int x=0;x<w;++x)
+		{
+			const size_t p=static_cast<size_t>(y)*w+x;
+			const int a=img.HasAlpha()?img.GetAlpha()[p]:255;
+			const size_t target=static_cast<size_t>(y+(artH-h)/2)*artW+(x+(artW-w)/2);
+			for(int ch=0;ch<3;++ch)
+				canvas.GetData()[3*target+ch]=static_cast<uint8_t>(
+					img.GetData()[3*p+ch]*a/255);
+		}
+
+	// Derive a dedicated original-format INFO.FS palette (192 x RGB).
+	std::vector<ImgQuantize::Pixel> input;
+	input.reserve(static_cast<size_t>(artW)*artH);
+	const auto* rgb=canvas.GetData();
+	for(int p=0;p<artW*artH;++p)
+		input.emplace_back(rgb[3*p],rgb[3*p+1],rgb[3*p+2],255);
+	auto median=ImgQuantize::GenMedianCutPalette(input,191);
+	if(median.empty())
+		return false;
+	std::vector<uint8_t> palData(192*3,0);
+	for(size_t i=0;i<std::min(static_cast<size_t>(191),median.size());++i)
+	{
+		palData[3*(i+1)]=median[i].r;
+		palData[3*(i+1)+1]=median[i].g;
+		palData[3*(i+1)+2]=median[i].b;
+	}
+	SpellPalette artPal(palFile);
+	if(artPal.Insert(palData,palFile,0,192))
+		return false;
+	artPal.ClearUserRange();
+	artPal.AddUserRangeStr("1-191");
+	SpellGraphicItem rendered;
+	std::vector<ImgQuantize::Pixel> temp;
+	auto bmp=wxBitmap(canvas);
+	if(rendered.Encode(bmp,temp,false,artStem,&artPal,1.0,0.0,0.0,
+		artW,artH,wxIMAGE_QUALITY_NEAREST,0,128))
+		return false;
+	std::vector<uint8_t> compressed;
+	LZspell encoder(rendered.pixels.data(),static_cast<int>(rendered.pixels.size()),compressed);
+	if(compressed.empty())
+		return false;
+	LZWexpand decoder(300000);
+	auto decoded=decoder.Decode(compressed);
+	if(decoded!=rendered.pixels)
+		return false;
+
+	// Register the palette and image in the live editor only after validation.
+	auto* livePal=m_spell_data->AddPalette(palFile);
+	if(!livePal || livePal->Insert(palData,palFile,0,192) ||
+		m_spell_data->gres_info.AddRaw(rendered.pixels.data(),static_cast<int>(rendered.pixels.size()),
+			artW,artH,artFile.c_str(),livePal,true))
+		return false;
+	m_custom_info_files[artFile]=std::move(compressed);
+	m_custom_info_files[palFile]=std::move(palData);
+	m_unit->info=artStem;
+	m_unit->info_imgs.clear();
+	auto* glyph=m_spell_data->gres_info.GetResource(artStem.c_str());
+	if(glyph)
+		m_unit->info_imgs.push_back(glyph);
+	canvasInfo->Refresh();
+	SetStatusText("Custom INFO.FS art "+artStem+" generated.");
 	return true;
 }
 
