@@ -80,13 +80,19 @@ def render_views(args):
     scene.frame_set(args.frame)
     center, radius = bounds()
 
-    engines = {e.identifier for e in scene.render.bl_rna.properties['engine'].enum_items}
-    if 'BLENDER_EEVEE_NEXT' in engines:
-        scene.render.engine = 'BLENDER_EEVEE_NEXT'
-    elif 'BLENDER_EEVEE' in engines:
-        scene.render.engine = 'BLENDER_EEVEE'
-    else:
-        scene.render.engine = 'CYCLES'
+    # Engine identifiers changed around Blender 4.2 / 5.x.
+    # Try available operators directly rather than introspecting enum items.
+    chosen = None
+    for candidate in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE', 'CYCLES'):
+        try:
+            scene.render.engine = candidate
+            chosen = candidate
+            break
+        except (TypeError, ValueError):
+            pass
+    if chosen is None:
+        raise RuntimeError('No usable render engine found in Blender')
+    if chosen == 'CYCLES':
         scene.cycles.samples = 16
 
     scene.render.resolution_x = args.resolution
