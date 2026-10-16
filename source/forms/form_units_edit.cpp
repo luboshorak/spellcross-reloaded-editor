@@ -2220,7 +2220,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	grid->Add(new wxStaticText(&options,wxID_ANY,"Map unit scale:"),0,wxALIGN_CENTER_VERTICAL);
 	wxArrayString unitModes;
 	unitModes.Add("Air - may extend beyond one tile");
-	unitModes.Add("Ground - keep inside one 80x48 tile");
+	unitModes.Add("Ground - one map tile footprint (upright models can be taller)");
 	auto unitMode=new wxChoice(&options,wxID_ANY,wxDefaultPosition,wxDefaultSize,unitModes);
 	unitMode->SetSelection(m_unit->isAir()?0:1);
 	grid->Add(unitMode,1,wxEXPAND);
@@ -2306,7 +2306,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 				lightingField->GetValue());
 			original=renders.front().Copy(); // info-portrait source: actual 3D render
 			frames=FitRenderedModelFrames(renders,sizeField->GetValue(),
-				unitMode->GetSelection()==1);
+				unitMode->GetSelection()==1,m_unit->isWalk(),m_unit->gr_base);
 		}
 		else
 		{
@@ -2315,7 +2315,7 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 			frames=ConvertArtworkToUnitFrames(original,sizeField->GetValue(),
 				backgroundField->GetValue(),toleranceField->GetValue(),
 				rotationField->GetSelection()==0,unitMode->GetSelection()==1,
-				m_unit->gr_base,sourceHeadingField->GetSelection());
+				m_unit->isWalk(),m_unit->gr_base,sourceHeadingField->GetSelection());
 		}
 		// Improve readability for the low-resolution indexed game palette.
 		// Applied to both 3D and legacy PNG input, not to the original file.
@@ -2413,20 +2413,30 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 				info.colors_str="128-223";
 				info.x_size=frames[i].GetWidth();
 				info.y_size=frames[i].GetHeight();
-				// Spellcross FSU offsets are relative to (x=40,y=128).
-				// Ground sprites end at the tile base; air sprites stay centered.
+				// Spellcross FSU sprite (0,128) is the ground/map anchor.
+				// An empty bottom border must NOT lift ground units off the tile.
 				info.x_offset=40-frames[i].GetWidth()/2;
 				info.y_offset=unitMode->GetSelection()==1
-					?128-frames[i].GetHeight():128-frames[i].GetHeight()/2;
+					?GroundFootOffset(frames[i]):128-frames[i].GetHeight()/2;
 				info.resampling=wxIMAGE_QUALITY_NEAREST;
 				info.is_transparent=true;
 				if(info.SaveInfo(infoPath))
 					throw std::runtime_error("Cannot save generated sprite metadata "+code);
 			}
 
-		// Only register the new icon after the graphics archive was built.
+		// The Air/Ground selection is game data, not merely the sprite size.
+		// When a new unit was cloned from an aircraft, it otherwise kept the
+		// AIR classification and hovered 150 pixels over the terrain!
 		if(BuildUnitGraphicsFromFolder(spritesDir,output,group))
 		{
+			if(unitMode->GetSelection()==1)
+			{
+				const int kind=m_unit->utype & SpellUnitRec::UTYPE_TYPE_MASK;
+				if(kind==SpellUnitRec::UTYPE_TYPE_AIR)
+					m_unit->utype=(m_unit->utype & ~SpellUnitRec::UTYPE_TYPE_MASK)
+						| SpellUnitRec::UTYPE_TYPE_ARMORED;
+				m_unit->utype &= ~SpellUnitRec::UTYPE_FLY;
+			}
 			if(!CreateUnitIcon(frames[0],group))
 				wxMessageBox("FSU built, but custom unit icon could not be created.",
 					"Create unit graphics",wxOK|wxICON_EXCLAMATION,this);
