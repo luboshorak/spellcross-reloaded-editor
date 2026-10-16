@@ -89,8 +89,10 @@ class FormUnitsEdit : public wxFrame
 		bool BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
 			const std::filesystem::path& output, const std::string& group);
 		bool CreateUnitIcon(const wxImage& sprite, const std::string& group);
+		bool CreateUnitInfoArt(const wxImage& source, const std::string& group);
 		// New graphics embedded into COMMON.FS when the mod is exported.
 		std::map<std::string, std::vector<uint8_t>> m_custom_icon_lz;
+		std::map<std::string, std::vector<uint8_t>> m_custom_info_files;
 		void OnExportUnitMod(wxCommandEvent& event);
 
 		wxString OnGetUnitName(long item);
