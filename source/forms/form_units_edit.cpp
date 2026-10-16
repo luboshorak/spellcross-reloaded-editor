@@ -3040,6 +3040,19 @@ bool FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& sou
 		auto* resource = decoded.GetResource(group.c_str());
 		if(!resource || (!resource->stat.azimuths && !resource->anim.azimuths))
 			throw std::runtime_error("Sprite naming does not form a valid FSU resource");
+		// Original FSU parser infers heading/slope/frame counts from the
+		// three-character filenames. Verify it detected the intended native
+		// layout before merging anything into the user's mod archive.
+		if(sources.size()==208 &&
+			(resource->stat.azimuths!=16 || resource->stat.slopes!=13))
+			throw std::runtime_error("Ground vehicle sprite layout is not 13 slopes x 16 directions.");
+		if(sources.size()==96 &&
+			(resource->stat.azimuths!=16 || resource->stat.slopes!=1 ||
+			 resource->anim.azimuths!=8 || resource->anim.frames!=10))
+			throw std::runtime_error("Walker sprite layout is not 10 x 8 movement plus 16 standing.");
+		if(sources.size()==16 &&
+			(resource->stat.azimuths!=8 || resource->anim.azimuths!=8))
+			throw std::runtime_error("Aircraft sprite layout is not 8 movement plus 8 static.");
 
 		// Merge compressed, untouched original sprites with the new group.
 		FSUarchive merged(m_spell_data->units_fsu_source_path.wstring(),
