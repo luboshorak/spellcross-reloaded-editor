@@ -1763,12 +1763,21 @@ void FormUnitsEdit::OnGenerateGameSprites(wxCommandEvent& event)
 			"Create game sprites",wxOK|wxICON_INFORMATION,this);
 		return;
 	}
-	wxFileDialog chooseArt(this,"Select an illustration or photo (PNG)",
-		wxEmptyString,wxEmptyString,"PNG files (*.png)|*.png",
-		wxFD_OPEN|wxFD_FILE_MUST_EXIST);
-	if(chooseArt.ShowModal()!=wxID_OK)
-		return;
-	const auto source=std::filesystem::path(chooseArt.GetPath().ToStdWstring());
+	std::filesystem::path source;
+	if(!m_auto_source_png.empty())
+	{
+		source = m_auto_source_png;
+		m_auto_source_png.clear();
+	}
+	else
+	{
+		wxFileDialog chooseArt(this,"Select an illustration or photo (PNG)",
+			wxEmptyString,wxEmptyString,"PNG files (*.png)|*.png",
+			wxFD_OPEN|wxFD_FILE_MUST_EXIST);
+		if(chooseArt.ShowModal()!=wxID_OK)
+			return;
+		source=std::filesystem::path(chooseArt.GetPath().ToStdWstring());
+	}
 
 	wxDialog options(this,wxID_ANY,"Create Spellcross unit graphics",
 		wxDefaultPosition,wxSize(520,400),wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER);
@@ -2278,53 +2287,36 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 	basics->SetSizer(basicsSizer);
 	pages->AddPage(basics, "1. Definition", true);
 
-	// Page 2: optional first sprite from PNG. More directions/frames can be
-	// imported using the same graphics encoder and its FSU sprite naming.
+	// Page 2: regular high-resolution artwork, not a pre-built game sprite.
 	auto graphics = new wxPanel(pages);
 	auto graphicsSizer = new wxBoxSizer(wxVERTICAL);
 	graphicsSizer->Add(new wxStaticText(graphics, wxID_ANY,
-		"Optional: prepare one PNG as a UNITS.FSU sprite.\n"
-		"The original UNITS.PAL colors are used automatically."),
+		"Optional: select any original PNG illustration or photo.\n"
+		"After creating the unit, a guided converter will cut out the object,\n"
+		"scale it to Spellcross size and optionally generate viewing directions."),
 		0, wxALL, 10);
-	auto graphicFields = new wxFlexGridSizer(2, 8, 10);
-	graphicFields->AddGrowableCol(1, 1);
-	graphicFields->Add(new wxStaticText(graphics, wxID_ANY, "Source PNG:"), 0, wxALIGN_CENTER_VERTICAL);
 	auto pngRow = new wxBoxSizer(wxHORIZONTAL);
 	auto pngField = new wxTextCtrl(graphics, wxID_ANY);
 	auto browse = new wxButton(graphics, wxID_ANY, "Browse...");
 	pngRow->Add(pngField, 1, wxRIGHT|wxEXPAND, 5);
 	pngRow->Add(browse, 0);
-	graphicFields->Add(pngRow, 1, wxEXPAND);
-	graphicFields->Add(new wxStaticText(graphics, wxID_ANY, "FSU sprite code:"), 0, wxALIGN_CENTER_VERTICAL);
-	auto spriteField = new wxTextCtrl(graphics, wxID_ANY, "A00");
-	spriteField->SetMaxLength(3);
-	graphicFields->Add(spriteField, 1, wxEXPAND);
-	graphicsSizer->Add(graphicFields, 0, wxALL|wxEXPAND, 10);
+	graphicsSizer->Add(new wxStaticText(graphics,wxID_ANY,"Source artwork (PNG):"),
+		0,wxLEFT|wxRIGHT|wxTOP,10);
+	graphicsSizer->Add(pngRow,0,wxEXPAND|wxALL,10);
 	graphicsSizer->Add(new wxStaticText(graphics, wxID_ANY,
-		"FSU sprite files use exactly three characters (for example A00).\n"
-		"One PNG is not a complete animated/directional unit: create the other\n"
-		"sprites and assemble UNITS.FSU before choosing the new graphic group.\n"
-		"Neither your PNG nor existing .info files will be overwritten."),
+		"No need to pre-size or name the PNG as a game sprite.\n"
+		"Your source artwork will never be overwritten."),
 		0, wxALL, 10);
 	browse->Bind(wxEVT_BUTTON, [&](wxCommandEvent&)
 	{
-		wxFileDialog pick(&dialog, "Select unit sprite PNG", wxEmptyString,
+		wxFileDialog pick(&dialog, "Select source artwork", wxEmptyString,
 			wxEmptyString, "PNG images (*.png)|*.png",
 			wxFD_OPEN|wxFD_FILE_MUST_EXIST);
 		if(pick.ShowModal() == wxID_OK)
-		{
 			pngField->SetValue(pick.GetPath());
-			auto stem = std::filesystem::path(pick.GetPath().ToStdWstring()).stem().string();
-			if(stem.size() == 3)
-			{
-				for(auto& ch : stem)
-					ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-				spriteField->SetValue(wxString::FromUTF8(stem.c_str()));
-			}
-		}
 	});
 	graphics->SetSizer(graphicsSizer);
-	pages->AddPage(graphics, "2. Sprite PNG");
+	pages->AddPage(graphics, "2. Source artwork");
 
 	outer->Add(pages, 1, wxALL|wxEXPAND, 8);
 	auto buttons = new wxStdDialogButtonSizer();
@@ -2350,41 +2342,13 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 		}
 		if(!pngField->GetValue().IsEmpty())
 		{
-			auto spriteId = spriteField->GetValue().ToStdString();
-			bool valid = spriteId.length() == 3;
-			for(unsigned char ch : spriteId)
-				valid = valid && ((ch >= 'A' && ch <= 'Z') ||
-					(ch >= '0' && ch <= '9') || ch == '_');
-			if(!valid)
-			{
-				wxMessageBox("FSU sprite code must be exactly three uppercase A-Z, 0-9 or _ characters.",
-					"New unit", wxOK|wxICON_EXCLAMATION, &dialog);
-				pages->SetSelection(1);
-				return;
-			}
 			wxImage testImage;
 			if(!testImage.LoadFile(pngField->GetValue(), wxBITMAP_TYPE_PNG))
 			{
-				wxMessageBox("Cannot read selected PNG.", "New unit",
+				wxMessageBox("Cannot read selected source artwork.", "New unit",
 					wxOK|wxICON_ERROR, &dialog);
 				pages->SetSelection(1);
 				return;
-			}
-			auto pngPath = std::filesystem::path(pngField->GetValue().ToStdWstring());
-			auto infoPath = pngPath;
-			infoPath.replace_extension(L".info");
-			if(std::filesystem::exists(infoPath))
-			{
-				SpellGresInfo info;
-				if(info.LoadInfo(infoPath) || !info.isUnitsFSU() ||
-					info.img_name != pngPath.filename().string() || info.name != spriteId)
-				{
-					wxMessageBox("An incompatible .info already exists next to the PNG.\n"
-						"Choose another image or edit its metadata in the graphics encoder.",
-						"New unit", wxOK|wxICON_ERROR, &dialog);
-					pages->SetSelection(1);
-					return;
-				}
 			}
 		}
 		dialog.EndModal(wxID_OK);
@@ -2395,65 +2359,7 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 
 	wxString unitName = nameField->GetValue();
 	unitName.Trim(true).Trim(false);
-	std::filesystem::path infoPath;
 	const auto sourcePNG = pngField->GetValue();
-	if(!sourcePNG.IsEmpty())
-	{
-		const auto pngPath = std::filesystem::path(sourcePNG.ToStdWstring());
-		infoPath = pngPath;
-		infoPath.replace_extension(L".info");
-
-		auto unitsPalette = m_spell_data->GetPalette("UNITS.PAL");
-		if(!unitsPalette)
-		{
-			wxMessageBox("UNITS.PAL is not loaded. Sprite preparation was cancelled.",
-				"New unit", wxOK|wxICON_ERROR, this);
-			return;
-		}
-		auto palPath = pngPath.parent_path() / L"spellcross_units.palinfo";
-		if(std::filesystem::exists(palPath))
-		{
-			SpellPalette oldPalette;
-			if(oldPalette.LoadInfo(palPath) || oldPalette.m_pal != unitsPalette->m_pal)
-			{
-				wxMessageBox("The existing spellcross_units.palinfo does not match the loaded UNITS.PAL.\n"
-					"Move it aside or select a different PNG folder. Nothing was overwritten.",
-					"New unit", wxOK|wxICON_ERROR, this);
-				return;
-			}
-		}
-		else if(unitsPalette->SaveInfo(palPath))
-		{
-			wxMessageBox("Could not save UNITS.PAL metadata next to the PNG.",
-				"New unit", wxOK|wxICON_ERROR, this);
-			return;
-		}
-
-		if(!std::filesystem::exists(infoPath))
-		{
-			wxImage image;
-			if(!image.LoadFile(sourcePNG, wxBITMAP_TYPE_PNG))
-				return;
-			SpellGresInfo info;
-			info.path = infoPath;
-			info.info_name = infoPath.filename().string();
-			info.raw_name = spriteField->GetValue().ToStdString();
-			info.raw_img_name = pngPath.filename().string();
-			info.format = SpellGresInfo::Format::FSU;
-			info.pal_name = palPath.filename().string();
-			info.colors_str = "128-223";
-			info.x_size = image.GetWidth();
-			info.y_size = image.GetHeight();
-			info.is_transparent = true;
-			if(info.SaveInfo(infoPath))
-			{
-				wxMessageBox("Could not save the PNG .info metadata. Unit was not created.",
-					"New unit", wxOK|wxICON_ERROR, this);
-				return;
-			}
-		}
-	}
-
 	const int templateIndex = templateChoice->GetSelection() - 1;
 	auto unit = m_units->AddUnit(templateIndex);
 	unit->name = unitName.ToStdWstring();
@@ -2470,17 +2376,15 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 	OnSelectUnit(unitSelection);
 	lboxUnits->Refresh();
 
-	if(!infoPath.empty())
+	if(!sourcePNG.IsEmpty())
 	{
-		auto encoder = new FormGResEncoder(GetParent(), m_spell_data);
-		if(encoder->OpenInfoResource(infoPath))
-			encoder->Show();
-		else
-			encoder->Destroy();
-		SetStatusText("New unit added; sprite source prepared. Export sprite and build mod UNITS.FSU to use new graphics.");
+		m_auto_source_png=std::filesystem::path(sourcePNG.ToStdWstring());
+		wxCommandEvent generateEvent;
+		OnGenerateGameSprites(generateEvent);
 	}
 	else
-		SetStatusText("New unit added. Edit its attributes and use File > Save target DEF file(s).");
+		SetStatusText("New unit added. Edit its attributes and save/export DEF when ready.");
+
 }
 
 
