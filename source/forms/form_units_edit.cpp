@@ -1757,28 +1757,22 @@ static std::vector<wxImage> ConvertArtworkToUnitFrames(wxImage image,
 // graphics group for the currently edited unit.
 void FormUnitsEdit::OnGenerateGameSprites(wxCommandEvent& event)
 {
+	wxFileDialog chooseArt(this,"Select an illustration or photo (PNG)",
+		wxEmptyString,wxEmptyString,"PNG files (*.png)|*.png",
+		wxFD_OPEN|wxFD_FILE_MUST_EXIST);
+	if(chooseArt.ShowModal()!=wxID_OK)
+		return;
+	GenerateGameSpritesFromSource(std::filesystem::path(chooseArt.GetPath().ToStdWstring()));
+}
+
+void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& source)
+{
 	if(!m_unit || !m_spell_data || !m_spell_data->units_fsu)
 	{
 		wxMessageBox("Select your new unit in the DEF editor first.",
 			"Create game sprites",wxOK|wxICON_INFORMATION,this);
 		return;
 	}
-	std::filesystem::path source;
-	if(!m_auto_source_png.empty())
-	{
-		source = m_auto_source_png;
-		m_auto_source_png.clear();
-	}
-	else
-	{
-		wxFileDialog chooseArt(this,"Select an illustration or photo (PNG)",
-			wxEmptyString,wxEmptyString,"PNG files (*.png)|*.png",
-			wxFD_OPEN|wxFD_FILE_MUST_EXIST);
-		if(chooseArt.ShowModal()!=wxID_OK)
-			return;
-		source=std::filesystem::path(chooseArt.GetPath().ToStdWstring());
-	}
-
 	wxDialog options(this,wxID_ANY,"Create Spellcross unit graphics",
 		wxDefaultPosition,wxSize(520,400),wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER);
 	auto layout=new wxBoxSizer(wxVERTICAL);
@@ -1935,12 +1929,8 @@ void FormUnitsEdit::OnGenerateGameSprites(wxCommandEvent& event)
 					throw std::runtime_error("Cannot save generated sprite metadata "+code);
 			}
 
-		// Feed generated image folder into the existing FSU/UNITS.PAL pipeline.
-		m_generated_source=spritesDir;
-		m_generated_output=output;
-		m_generated_group=group;
-		wxCommandEvent buildEvent;
-		OnBuildUnitGraphics(buildEvent);
+		// Build the FSU archive directly; no intermediate UI state is needed.
+		BuildUnitGraphicsFromFolder(spritesDir,output,group);
 	}
 	catch(const std::exception& error)
 	{
@@ -1963,28 +1953,12 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 		return;
 	}
 
-	std::string group;
-	std::filesystem::path source;
-	std::filesystem::path output;
-	if(!m_generated_source.empty())
-	{
-		group = m_generated_group;
-		source = m_generated_source;
-		output = m_generated_output;
-		m_generated_source.clear();
-		m_generated_output.clear();
-		m_generated_group.clear();
-	}
-	else
-	{
-		wxTextEntryDialog nameDialog(this,
-			"Enter a unique FSU group name (1-5 uppercase letters or digits):",
-			"New UNITS.FSU graphics group","U001");
-		if(nameDialog.ShowModal() != wxID_OK)
-			return;
-		group = nameDialog.GetValue().ToStdString();
-	}
-
+	wxTextEntryDialog nameDialog(this,
+		"Enter a unique FSU group name (1-5 uppercase letters or digits):",
+		"New UNITS.FSU graphics group","U001");
+	if(nameDialog.ShowModal() != wxID_OK)
+		return;
+	std::string group = nameDialog.GetValue().ToStdString();
 	bool valid = !group.empty() && group.size() <= 5;
 	for(unsigned char ch : group)
 		valid = valid && ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'));
@@ -2015,7 +1989,16 @@ void FormUnitsEdit::OnBuildUnitGraphics(wxCommandEvent& event)
 		output = outputDialog.GetPath().ToStdWstring();
 	}
 	m_spell_data->export_path = output.wstring();
+	BuildUnitGraphicsFromFolder(source,output,group);
+}
 
+// Keep the core archive transformation reusable from manual and artwork import.
+void FormUnitsEdit::BuildUnitGraphicsFromFolder(const std::filesystem::path& source,
+	const std::filesystem::path& output,const std::string& group)
+{
+	if(!m_unit || !m_spell_data || !m_spell_data->units_fsu ||
+		m_spell_data->units_fsu_source_path.empty())
+		return;
 	const auto stage = output / ("spellcross_fsu_" + group);
 	const auto stage_group = stage / group;
 	const auto unitArchive = output / ("NEW_" + group + ".FSU");
@@ -2382,9 +2365,7 @@ void FormUnitsEdit::OnNewUnit(wxCommandEvent& event)
 
 	if(!sourcePNG.IsEmpty())
 	{
-		m_auto_source_png=std::filesystem::path(sourcePNG.ToStdWstring());
-		wxCommandEvent generateEvent;
-		OnGenerateGameSprites(generateEvent);
+		GenerateGameSpritesFromSource(std::filesystem::path(sourcePNG.ToStdWstring()));
 	}
 	else
 		SetStatusText("New unit added. Edit its attributes and save/export DEF when ready.");
