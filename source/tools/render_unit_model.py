@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--views', type=int, choices=[1,8], default=8)
-    parser.add_argument('--resolution', type=int, default=512)
+    parser.add_argument('--resolution', type=int, default=1024)
     parser.add_argument('--elevation', type=float, default=40.0)
     parser.add_argument('--heading', type=float, default=0.0)
     parser.add_argument('--frame', type=int, default=1)
@@ -57,7 +57,9 @@ def bounds():
 
 def light(scene, name, center, offset, radius, power):
     data = bpy.data.lights.new(name, type='AREA')
-    data.energy = power
+    # World-space radius varies wildly between game models. Scale wattage
+    # with radius squared to keep lighting consistent after importing them.
+    data.energy = power * radius * radius
     data.shape = 'DISK'
     data.size = 3.0 * radius
     obj = bpy.data.objects.new(name, data)
@@ -105,7 +107,10 @@ def render_views(args):
     scene.view_settings.view_transform = 'Standard'
     world = bpy.data.worlds.new('Spellcross Ambient')
     world.use_nodes = True
-    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.7
+    world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.85, 0.88, 0.95, 1.0)
+    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.15
+    # Favor texture readability, especially on dark vehicles and aircraft.
+    scene.view_settings.exposure = 0.45
     scene.world = world
 
     cam_data = bpy.data.cameras.new('Spellcross Camera')
@@ -115,8 +120,12 @@ def render_views(args):
     # Single fixed scale is critical: don't enlarge individual directions.
     cam_data.ortho_scale = radius * 2.4
     scene.camera = cam
-    light(scene,'Spellcross Key',center,(-1.4,-2.0,3.0),radius,600)
-    light(scene,'Spellcross Fill',center,(1.7,1.8,2.0),radius,400)
+    # Broad multidirectional light rig; avoids losing all detail on the
+    # unlit side as the camera orbits through eight directions.
+    light(scene,'Spellcross Key',center,(-1.4,-2.0,3.0),radius,1150)
+    light(scene,'Spellcross Fill',center,(1.7,1.8,2.0),radius,850)
+    light(scene,'Spellcross Rim',center,(0.6,2.7,3.0),radius,700)
+    light(scene,'Spellcross Side',center,(-2.4,1.2,2.2),radius,450)
     elevation = math.radians(args.elevation)
     for index in range(args.views):
         az = math.radians(args.heading + index * 45)
