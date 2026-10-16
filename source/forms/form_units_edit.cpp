@@ -1557,7 +1557,9 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 		return;
 	auto dir = std::filesystem::path(saveDialog.GetPath().ToStdWstring());
 	auto dest = dir / "COMMON.FS";
-	if(std::filesystem::exists(dest))
+	const auto infoDest=dir / "INFO.FS";
+	if(std::filesystem::exists(dest) ||
+		(!m_custom_info_files.empty() && std::filesystem::exists(infoDest)))
 	{
 		wxMessageBox("COMMON.FS already exists at destination. Select a new mod folder.\n"
 			"The original and existing mods will never be overwritten automatically.",
@@ -1575,15 +1577,27 @@ void FormUnitsEdit::OnExportUnitMod(wxCommandEvent& event)
 			if(base.AddFile(name,compressed,false))
 				throw std::runtime_error("Cannot insert new unit icon "+name+": "+base.m_last_error);
 		}
+		if(!m_custom_info_files.empty())
+		{
+			if(m_spell_data->info_fs_source_path.empty())
+				throw std::runtime_error("INFO.FS source archive is not configured.");
+			FSarchive infoBase(m_spell_data->info_fs_source_path.wstring(),FSarchive::Options::NONE);
+			for(auto& [name,bytes] : m_custom_info_files)
+				if(infoBase.AddFile(name,bytes,false))
+					throw std::runtime_error("Cannot append "+name+" to INFO.FS: "+infoBase.m_last_error);
+			if(infoBase.SaveFile(infoDest.wstring()))
+				throw std::runtime_error("Cannot export INFO.FS: "+infoBase.m_last_error);
+		}
 		if(base.SaveFile(dest.wstring()))
 			throw std::runtime_error(base.m_last_error);
 		m_spell_data->export_path = dir.wstring();
 
-		wxMessageBox("Exported mod COMMON.FS with updated JEDNOTKY.DEF:\n"
+		wxMessageBox("Exported mod COMMON.FS with new icons and JEDNOTKY.DEF:\n"
 			+ wxString(dest.wstring()) +
-			"\n\nFor new graphics, keep the generated UNITS.FSU in this same folder.\n"
-			"Load the mod folder through the editor's game configuration "
-			"or your Reloaded mod deployment before launching a game test.",
+			"\n\nNew portraits, if generated, are in INFO.FS alongside it.\n"
+			"Keep UNITS.FSU in the same mod folder.\n"
+			"Load this mod folder through the editor's game configuration "
+			"or Reloaded before launching a game test.",
 			"Export unit mod",wxOK|wxICON_INFORMATION,this);
 	}
 	catch(const std::exception& error)
