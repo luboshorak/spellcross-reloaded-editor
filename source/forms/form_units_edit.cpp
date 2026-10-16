@@ -2506,6 +2506,27 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 		0,wxALL,10);
 	auto spriteView=new wxStaticBitmap(&preview,wxID_ANY,wxBitmap(frames[0]));
 	previewLayout->Add(spriteView,1,wxALL|wxALIGN_CENTER_HORIZONTAL,10);
+	// Explicitly show the actual, opaque bitmap footprint. Canvas dimensions
+	// include transparent padding, so those numbers alone are misleading.
+	auto visibleSize=[](const wxImage& image)->wxString
+	{
+		const int width=image.GetWidth(),height=image.GetHeight();
+		int left=width,top=height,right=-1,bottom=-1;
+		const auto* alpha=image.HasAlpha()?image.GetAlpha():nullptr;
+		for(int y=0;y<height;++y)
+			for(int x=0;x<width;++x)
+			{
+				const size_t p=static_cast<size_t>(y)*width+x;
+				if(alpha && alpha[p]<128)
+					continue;
+				left=std::min(left,x); top=std::min(top,y);
+				right=std::max(right,x); bottom=std::max(bottom,y);
+			}
+		return wxString::Format("Visible object: %d x %d pixels (canvas %d x %d)",
+			std::max(0,right-left+1),std::max(0,bottom-top+1),width,height);
+	};
+	auto visibleInfo=new wxStaticText(&preview,wxID_ANY,visibleSize(frames[0]));
+	previewLayout->Add(visibleInfo,0,wxLEFT|wxRIGHT|wxBOTTOM,10);
 	wxArrayString headings;
 	for(size_t i=0;i<frames.size();++i)
 		headings.Add(wxString::Format("Direction %d",static_cast<int>(i)+1));
@@ -2514,7 +2535,9 @@ void FormUnitsEdit::GenerateGameSpritesFromSource(const std::filesystem::path& s
 	headingChoice->SetSelection(0);
 	headingChoice->Bind(wxEVT_CHOICE,[&](wxCommandEvent&)
 	{
-		spriteView->SetBitmap(wxBitmap(frames[headingChoice->GetSelection()]));
+		const auto& sprite=frames[headingChoice->GetSelection()];
+		spriteView->SetBitmap(wxBitmap(sprite));
+		visibleInfo->SetLabel(visibleSize(sprite));
 		preview.Layout();
 	});
 	previewLayout->Add(headingChoice,0,wxEXPAND|wxLEFT|wxRIGHT|wxBOTTOM,10);
