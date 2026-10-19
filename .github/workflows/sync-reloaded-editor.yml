@@ -1,0 +1,55 @@
+name: Update editor submodule in Spellcross Reloaded
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - .github/workflows/sync-reloaded-editor.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-editor-to-spellcross-reloaded
+  cancel-in-progress: false
+
+jobs:
+  update-game-submodule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Spellcross Reloaded
+        uses: actions/checkout@v6
+        with:
+          repository: luboshorak/spellcross-reloaded
+          ref: main
+          token: ${{ secrets.RELOADED_MAIN_TOKEN }}
+          path: reloaded
+          persist-credentials: true
+
+      - name: Update submodule to latest editor main
+        shell: bash
+        working-directory: reloaded
+        run: |
+          set -euo pipefail
+
+          git config user.name "spellcross-editor-sync[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git submodule sync -- external/map-editor
+          git submodule update --init --remote --checkout external/map-editor
+
+          editor_sha="$(git -C external/map-editor rev-parse --short=12 HEAD)"
+          echo "Editor main commit: $editor_sha"
+
+          if git diff --quiet -- external/map-editor; then
+            echo "Spellcross Reloaded already points at this editor commit."
+            exit 0
+          fi
+
+          git add external/map-editor
+          git commit -m "chore: update map editor submodule to $editor_sha"
+
+          # Ordinary fast-forward push. Never force-overwrite game changes.
+          git push origin HEAD:main
