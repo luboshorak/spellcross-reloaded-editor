@@ -6,13 +6,13 @@ This is the standalone editor included with [Spellcross Reloaded](https://github
 
 It builds on [Stanislav Mašláň's original Spellcross Map Editor](https://github.com/smaslan/spellcross-map-edit). His work on the game formats, editor and resource tools remains the foundation of this fork.
 
-**[Download Spellcross Reloaded v0.8.2 (game + editor)](https://github.com/luboshorak/spellcross-reloaded/releases/tag/v0.8.2)** · [Original editor](https://github.com/smaslan/spellcross-map-edit) · [Full editor reference](./doc/UPSTREAM_EDITOR_GUIDE.md)
+**[Download the latest Spellcross Reloaded release (game + editor)](https://github.com/luboshorak/spellcross-reloaded/releases/latest)** · [Original editor](https://github.com/smaslan/spellcross-map-edit) · [Full editor reference](./doc/UPSTREAM_EDITOR_GUIDE.md)
 
 ## Start editing
 
 The easiest way to get the editor is through the combined Spellcross Reloaded download:
 
-1. Download and extract [v0.8.2](https://github.com/luboshorak/spellcross-reloaded/releases/tag/v0.8.2) into a writable folder.
+1. Download the [latest Spellcross Reloaded release](https://github.com/luboshorak/spellcross-reloaded/releases/latest). Install the `.exe` package or extract the `.zip` package into a writable folder.
 2. Run `Spellcross.exe` once and point it to your original Spellcross data. Reloaded can import directly from a raw ISO, from a CD/mounted folder, or from an existing `DATA` directory.
 3. Run `Editor/spellcross_map_editor.exe`. It can reuse the archives already configured for the game.
 4. Open a tactical `.DEF` mission or `.DTA` map. Missions and the maps they reference must remain accessible together.
@@ -31,7 +31,7 @@ The editor and game keep separate `config.ini` files. You do not have to copy re
 
 The original editor's viewers, import/export tools and resource browsers are still available. Some advanced map-editing operations remain experimental rather than fully automated.
 
-## Tools added for v0.8.2
+## Reloaded map-editing features
 
 **Paint terrain and objects.** Pick a tool in the ribbon, then click the map. The right-hand status bar helps you see which sprite was selected and what was actually placed. This fork also fixes a bug where missing mission-marker assets could prevent ordinary L1 terrain and building graphics from appearing.
 
@@ -47,7 +47,7 @@ Rotation works with single tiles and supported multi-cell flat terrain or road s
 
 **Move placed objects.** Clear the active painting brush, then drag a supported L2 object to an empty location. The editor shows a preview, checks for collisions and supports Undo. Recognized multi-cell L2 objects can move together. Buildings drawn directly into the L1 ground cannot be moved this way because the original ground beneath them is not available to restore.
 
-**Try the result in the game.** Reloaded v0.8.2 can open standalone tactical missions via **File → Load custom map...** (`Ctrl+Alt+O`). Keep each mission's referenced `.DTA` accessible.
+**Try the result in the game.** Spellcross Reloaded can open standalone tactical missions via **File → Load custom map...** (`Ctrl+Alt+O`). Keep each mission's referenced `.DTA` accessible.
 
 ### Important compatibility note
 
